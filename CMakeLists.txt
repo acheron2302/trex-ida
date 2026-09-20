@@ -33,10 +33,22 @@ message(STATUS "trexida: compiler = ${TREX_COMPILER_NAME}")
 if(NOT EXISTS "${IDA_SDK_DIR}/include/hexrays.hpp")
   message(FATAL_ERROR "IDA SDK headers not found at '${IDA_SDK_DIR}/include' (set -DIDA_SDK_DIR=...)")
 endif()
-set(IDA_LIB "${IDA_SDK_DIR}/lib/x64_win_vc_64/ida.lib")
-if(NOT EXISTS "${IDA_LIB}")
-  message(FATAL_ERROR "IDA import library not found at '${IDA_LIB}'")
+# Older SDK tags (v9.2, v9.3.0-release, v9.3.0-sdk.1) put the Windows x64 import library in
+# 'lib/x64_win_vc_64'; v9.3.0-sdk.2 and everything newer use 'lib/x64_win_64'. Same library, so
+# accept either layout.
+set(IDA_LIB "")
+foreach(_ida_lib_dir "x64_win_64" "x64_win_vc_64")
+  if(EXISTS "${IDA_SDK_DIR}/lib/${_ida_lib_dir}/ida.lib")
+    set(IDA_LIB "${IDA_SDK_DIR}/lib/${_ida_lib_dir}/ida.lib")
+    break()
+  endif()
+endforeach()
+if(NOT IDA_LIB)
+  message(FATAL_ERROR
+    "IDA import library not found: no ida.lib in '${IDA_SDK_DIR}/lib/x64_win_64' or "
+    "'${IDA_SDK_DIR}/lib/x64_win_vc_64' (set -DIDA_SDK_DIR=...)")
 endif()
+message(STATUS "trexida: IDA import library = ${IDA_LIB}")
 
 # ------------------------------------------------------------ ida settings ---
 add_library(trex_ida_settings INTERFACE)

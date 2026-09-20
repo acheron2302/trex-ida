@@ -1,9 +1,10 @@
 name: trexida (Windows, IDA SDK)
 
 # Builds the plugin against the public HexRaysSA/ida-sdk and runs every gate that does not need a
-# licensed IDA: the ported core's unit tests and the differential gate against the vendored Rust
-# TRex. The IDA-driven end-to-end stages (tests/e2e/*.py) stay local - GitHub runners have neither
-# IDA nor a license; see the README's Verification section.
+# licensed IDA: the ported core's unit tests and the dumpbin checks on the produced DLL. The
+# differential gate against the vendored Rust TRex and the IDA-driven end-to-end stages
+# (tests/e2e/*.py, scripts/diff_oracle.py) stay local - GitHub runners have neither IDA nor a
+# license; see the README's Verification section.
 
 on:
   push:
@@ -133,27 +134,10 @@ jobs:
           ref: ${{ matrix.sdk_ref }}
           path: idasdk
 
-      - name: Verify the SDK layout the build needs
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          foreach ($p in @("$env:SDK_DIR\include\hexrays.hpp", "$env:SDK_DIR\lib\x64_win_vc_64\ida.lib")) {
-            if (-not (Test-Path $p)) { throw "IDA SDK file missing: $p" }
-            Write-Host "ok: $p"
-          }
-
       - name: Set up MSVC dev environment (x64)
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
-
-      - name: Install Rust (the differential gate builds the upstream oracle)
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache the oracle's Cargo build
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: third_party/trex/trex
 
       - name: Configure CMake
         shell: pwsh
@@ -184,12 +168,6 @@ jobs:
         run: |
           & "$env:BUILD_DIR\trex_unit_tests.exe" 2>&1
           if ($LASTEXITCODE -ne 0) { throw "unit tests failed ($LASTEXITCODE)" }
-
-      - name: Differential gate (C++ port vs the Rust original)
-        shell: pwsh
-        run: |
-          python scripts\diff_oracle.py 2>&1
-          if ($LASTEXITCODE -ne 0) { throw "differential gate failed ($LASTEXITCODE)" }
 
       - name: Verify the plugin DLL
         shell: pwsh

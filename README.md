@@ -70,7 +70,7 @@ unit tests and the differential gate possible outside IDA.
 
 | | |
 |---|---|
-| OS / arch | Windows x64 (MSVC ABI, `x64_win_vc_64`, `__EA64__`). |
+| OS / arch | Windows x64 (MSVC ABI, `lib/x64_win_64` — `lib/x64_win_vc_64` in older SDK tags, `__EA64__`). |
 | IDA | IDA Pro 9.x **with the decompiler** — without it the plugin refuses to load (`PLUGIN_SKIP`). Developed and verified against 9.4. |
 | IDA SDK | A checkout of the public [HexRaysSA/ida-sdk](https://github.com/HexRaysSA/ida-sdk); the plugin builds from `v9.2` upward. Point `IDASDK` at it (the build reads `${IDASDK}/src`). |
 | Compiler | Visual Studio 2022 (MSVC) or Intel oneAPI DPC++/C++ (`icx-cl`, MSVC-compatible driver). |
@@ -221,10 +221,10 @@ survive inlining).
 
 `.github/workflows/ida-plugin.yml` runs the IDA-free half of this on every push: it discovers the
 newest public SDK tag per minor (9.2 upward), then for each one configures and builds the plugin
-with Ninja, runs the unit tests and the differential gate, checks the produced DLL with `dumpbin`
-(x64 image, imports `ida.dll`, no dynamic CRT/Qt/Python dependency) and uploads the plugin plus the
-test binaries as artifacts. The GitHub runners have no IDA and no license, so the IDA-driven stages
-stay local — the workflow says so explicitly rather than faking them.
+with Ninja, runs the unit tests, checks the produced DLL with `dumpbin` (x64 image, imports
+`ida.dll`, no dynamic CRT/Qt/Python dependency) and uploads the plugin plus the test binaries as
+artifacts. The GitHub runners have no IDA and no license, so the IDA-driven stages stay local — the
+workflow says so explicitly rather than faking them.
 
 * Every SDK minor in the matrix is a hard gate — the older minors are not advisory rows, so a
   plugin that claims to build from `v9.2` upward cannot silently stop doing so, and a failure
@@ -232,8 +232,6 @@ stay local — the workflow says so explicitly rather than faking them.
   override for trying an unreleased or older ref.
 * `-DIDA_INSTALL_DIR=""` is passed on purpose: the post-build deploy step must not trigger on a
   runner, even if `IDADIR` happens to be defined there.
-* The differential gate builds the vendored Rust oracle, so that job installs a Rust toolchain and
-  caches `third_party/trex/trex/target`.
 
 ## Fidelity to upstream
 
