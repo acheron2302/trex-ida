@@ -1,0 +1,3 @@
+lifted 1 function(s), 0 failed, 13 instruction(s), 0 fallback(s), 0 invalid
+var rcx0 arg w=8 ida=_QWORD il=Varnode{as=0, off=1, sz=8}
+var result result w=8 ida=_QWORD il=Varnode{as=0, off=0, sz=8}

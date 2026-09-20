@@ -1,0 +1,285 @@
+name: trexida (Windows, IDA SDK)
+
+# Builds the plugin against the public HexRaysSA/ida-sdk and runs every gate that does not need a
+# licensed IDA: the ported core's unit tests and the differential gate against the vendored Rust
+# TRex. The IDA-driven end-to-end stages (tests/e2e/*.py) stay local - GitHub runners have neither
+# IDA nor a license; see the README's Verification section.
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+    inputs:
+      sdk_refs:
+        description: >-
+          Space-separated HexRaysSA/ida-sdk refs to build against (default: newest public tag per
+          minor, from 9.2 up). The last ref is the hard gate.
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  discover-sdk-tags:
+    name: Discover IDA SDK tags
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.discover.outputs.matrix }}
+    steps:
+      - name: Pick the newest public HexRaysSA/ida-sdk tag per minor
+        id: discover
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SDK_REFS_OVERRIDE: ${{ inputs.sdk_refs }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, sys, urllib.request
+
+          MAJOR = 9      # this plugin targets IDA 9.x
+          MIN_MINOR = 2  # oldest minor it is built against
+
+          tag_re = re.compile(r"^v(\d+)\.(\d+)(?:\.(\d+))?(?:-([A-Za-z0-9.]+))?$")
+
+
+          def fetch_tags():
+              """Every tag of HexRaysSA/ida-sdk, oldest API page first."""
+              token = os.environ.get("GITHUB_TOKEN", "")
+              tags, page = [], 1
+              while True:
+                  req = urllib.request.Request(
+                      "https://api.github.com/repos/HexRaysSA/ida-sdk/tags"
+                      f"?per_page=100&page={page}",
+                      headers={"Accept": "application/vnd.github+json"})
+                  if token:
+                      req.add_header("Authorization", f"Bearer {token}")
+                  with urllib.request.urlopen(req, timeout=30) as resp:
+                      data = json.load(resp)
+                  if not data:
+                      return tags
+                  tags += [t["name"] for t in data]
+                  if len(data) < 100:
+                      return tags
+                  page += 1
+
+
+          def newest_per_minor(tags):
+              """One tag per 9.x minor: the highest (minor, patch, suffix) of that minor."""
+              best = {}
+              for tag in tags:
+                  m = tag_re.match(tag)
+                  if not m:
+                      continue
+                  major, minor, patch, suffix = m.groups()
+                  if int(major) != MAJOR or int(minor) < MIN_MINOR:
+                      continue
+                  key = (int(minor), int(patch or 0), suffix or "")
+                  if int(minor) not in best or key > best[int(minor)][0]:
+                      best[int(minor)] = (key, tag)
+              return [best[k][1] for k in sorted(best)]
+
+
+          def safe(text):
+              return re.sub(r"[^A-Za-z0-9._-]", "_", text)
+
+
+          refs = (os.environ.get("SDK_REFS_OVERRIDE") or "").split() or newest_per_minor(fetch_tags())
+          if not refs:
+              sys.exit("no HexRaysSA/ida-sdk tag matches IDA %d.%d+" % (MAJOR, MIN_MINOR))
+
+          newest = refs[-1]
+          matrix = []
+          for ref in refs:
+              m = tag_re.match(ref)
+              minor = "%s.%s" % (m.group(1), m.group(2)) if m else ref
+              matrix.append({
+                  "sdk_ref": ref,
+                  "sdk_minor": minor,
+                  "artifact_name": "trexida-windows-msvc-%s" % safe(ref),
+              })
+
+          print("SDK refs:", ", ".join(refs))
+          print("newest: %s" % newest)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write("matrix=" + json.dumps({"include": matrix}) + "\n")
+          PY
+
+  build:
+    name: Build (${{ matrix.sdk_minor }} / ${{ matrix.sdk_ref }})
+    needs: discover-sdk-tags
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.discover-sdk-tags.outputs.matrix) }}
+    env:
+      BUILD_DIR: build
+      SDK_DIR: ${{ github.workspace }}\idasdk\src
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Checkout HexRaysSA/ida-sdk at ${{ matrix.sdk_ref }}
+        uses: actions/checkout@v4
+        with:
+          repository: HexRaysSA/ida-sdk
+          ref: ${{ matrix.sdk_ref }}
+          path: idasdk
+
+      - name: Verify the SDK layout the build needs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          foreach ($p in @("$env:SDK_DIR\include\hexrays.hpp", "$env:SDK_DIR\lib\x64_win_vc_64\ida.lib")) {
+            if (-not (Test-Path $p)) { throw "IDA SDK file missing: $p" }
+            Write-Host "ok: $p"
+          }
+
+      - name: Set up MSVC dev environment (x64)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install Rust (the differential gate builds the upstream oracle)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache the oracle's Cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: third_party/trex/trex
+
+      - name: Configure CMake
+        shell: pwsh
+        run: |
+          # IDA_INSTALL_DIR is forced empty: the build's post-build step deploys to
+          # $env:IDADIR\plugins, and a runner that happens to define IDADIR must not pull the
+          # build towards a nonexistent IDA installation.
+          #
+          # No ErrorActionPreference=Stop in the steps that run native tools: Windows PowerShell
+          # turns anything a native tool writes to stderr (cmake and ninja both do) into an error
+          # record, and under -Stop that aborts the step even when the tool succeeds. Failures are
+          # taken from exit codes instead, which behaves the same on PowerShell 5.1 and 7.
+          cmake -S . -B $env:BUILD_DIR -G Ninja `
+            -DCMAKE_CXX_COMPILER=cl `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DIDA_SDK_DIR="$env:SDK_DIR" `
+            -DIDA_INSTALL_DIR="" 2>&1
+          if ($LASTEXITCODE -ne 0) { throw "cmake configure failed ($LASTEXITCODE)" }
+
+      - name: Build (Release)
+        shell: pwsh
+        run: |
+          cmake --build $env:BUILD_DIR --parallel 2>&1
+          if ($LASTEXITCODE -ne 0) { throw "build failed ($LASTEXITCODE)" }
+
+      - name: Core unit tests
+        shell: pwsh
+        run: |
+          & "$env:BUILD_DIR\trex_unit_tests.exe" 2>&1
+          if ($LASTEXITCODE -ne 0) { throw "unit tests failed ($LASTEXITCODE)" }
+
+      - name: Differential gate (C++ port vs the Rust original)
+        shell: pwsh
+        run: |
+          python scripts\diff_oracle.py 2>&1
+          if ($LASTEXITCODE -ne 0) { throw "differential gate failed ($LASTEXITCODE)" }
+
+      - name: Verify the plugin DLL
+        shell: pwsh
+        run: |
+          # `throw` terminates the step (non-zero exit) under the default
+          # ErrorActionPreference=Continue as well, so this step needs no -Stop.
+          $dll = Join-Path $env:BUILD_DIR "trexida.dll"
+          if (-not (Test-Path $dll)) { throw "trexida.dll was not produced" }
+
+          $headers = dumpbin /nologo /headers $dll 2>&1
+          if (-not ($headers -match "8664 machine \(x64\)")) { throw "trexida.dll is not x64" }
+          Write-Host "ok: x64 image"
+
+          # A plugin must be a DLL that imports from ida.dll only. A dependency on the VC
+          # redistributable, Qt or Python would mean the runtime library settings drifted.
+          $imports = dumpbin /nologo /imports $dll 2>&1
+          if (-not ($imports -match "(?i)\bida\.dll\b")) { throw "trexida.dll does not import ida.dll" }
+          Write-Host "ok: imports ida.dll"
+          foreach ($forbidden in @("VCRUNTIME", "MSVCP", "Qt6", "python3", "ucrtbase")) {
+            if ($imports -match $forbidden) {
+              throw "trexida.dll unexpectedly depends on $forbidden (static CRT expected)"
+            }
+          }
+          Write-Host "ok: no dynamic CRT / Qt / Python dependency"
+
+      - name: Write build info
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+
+          # Compiler version from the file CMake generated (running `cl` here would push its
+          # banner through stderr, which ErrorActionPreference=Stop turns into a hard failure).
+          $version = "<unknown>"
+          foreach ($f in Get-ChildItem "$env:BUILD_DIR\CMakeFiles" -Filter CMakeCXXCompiler.cmake -Recurse) {
+            $m = Select-String -Path $f.FullName -Pattern '^set\(CMAKE_CXX_COMPILER_VERSION\s+"([^"]+)"'
+            if ($m) { $version = $m.Matches[0].Groups[1].Value; break }
+          }
+
+          @"
+          project:       trexida (TRex type reconstruction for IDA Pro)
+          ida sdk ref:   ${{ matrix.sdk_ref }}
+          ida sdk minor: ${{ matrix.sdk_minor }}
+          sdk root:      ${{ github.workspace }}\idasdk
+          compiler:      cl $version
+          build type:    Release
+          git sha:       ${{ github.sha }}
+          git ref:       ${{ github.ref }}
+          "@ | Out-File -FilePath artifacts\build-info.txt -Encoding utf8
+          "${{ matrix.sdk_ref }}" | Out-File -FilePath artifacts\ida-sdk-ref.txt -Encoding utf8
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            ${{ env.BUILD_DIR }}/trexida.dll
+            ${{ env.BUILD_DIR }}/trex_port_cli.exe
+            ${{ env.BUILD_DIR }}/trex_unit_tests.exe
+            artifacts/*.txt
+
+  release:
+    name: Publish GitHub release (tags only)
+    if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    needs: [build]
+    runs-on: windows-2022
+    permissions:
+      contents: write
+    steps:
+      - name: Download every build artifact
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Package one zip per SDK
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Get-ChildItem artifacts -Directory | ForEach-Object {
+            $sdk = $_.Name -replace '^trexida-windows-msvc-', ''
+            $zip = "dist/trexida-${{ github.ref_name }}-windows-x64-$sdk.zip"
+            Compress-Archive -Path (Join-Path $_.FullName '*') -DestinationPath $zip -Force
+            Write-Host "packaged $zip"
+          }
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: dist/*.zip

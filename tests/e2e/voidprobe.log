@@ -1,0 +1,482 @@
+Successfully activated virtualenv for IDAPython: E:\virtualenv\venv
+
+LoadLibrary(C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\bindiff8_ida.dll) error: The specified procedure could not be found.
+C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\bindiff8_ida.dll: can't load file
+
+LoadLibrary(C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\bindiff8_ida64.dll) error: The specified module could not be found.
+C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\bindiff8_ida64.dll: can't load file
+
+LoadLibrary(C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\binexport12_ida.dll) error: The specified procedure could not be found.
+C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\binexport12_ida.dll: can't load file
+
+LoadLibrary(C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\binexport12_ida64.dll) error: The specified module could not be found.
+C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\binexport12_ida64.dll: can't load file
+C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\D810.py: Traceback (most recent call last):
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\D810.py", line 834, in PLUGIN_ENTRY
+    return D810Plugin()
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\D810.py", line 770, in __init__
+    super().__init__(
+    ~~~~~~~~~~~~~~~~^
+        global_name="D810",
+        ^^^^^^^^^^^^^^^^^^^
+        base_package_name="d810",
+        ^^^^^^^^^^^^^^^^^^^^^^^^^
+        plugin_class="d810.manager.D810State",
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\D810.py", line 685, in __init__
+    self.plugin = self._import_plugin_cls()
+                  ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\D810.py", line 689, in _import_plugin_cls
+    mod = importlib.import_module(self.plugin_module)
+  File "C:\Users\ADMIN\AppData\Local\Programs\Python\Python313\Lib\importlib\__init__.py", line 88, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1387, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1331, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 935, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 1023, in exec_module
+  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\d810\manager.py", line 23, in <module>
+    from d810.ui.ida_ui import D810GUI
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\d810\ui\ida_ui.py", line 13, in <module>
+    from d810.qt_shim import QtCore, QtWidgets, qt_flag_or
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\d810\qt_shim.py", line 149, in <module>
+    raise ImportError(
+    ...<2 lines>...
+    ) from None
+ImportError: Neither PySide6 nor PyQt5 could be imported. Please ensure one of them is installed.
+
+C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\hashdb.py:901: SyntaxWarning: invalid escape sequence '\:'
+  "<##New name\: :{new_name}>"
+C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\HexRaysPyTools.py: PySide6 can only be used from the GUI version of IDA
+Traceback (most recent call last):
+  File "D:\tools\IDA 9.4\python\ida_idaapi.py", line 698, in IDAPython_ExecScript
+    exec(code, g)
+    ~~~~^^^^^^^^^
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\HexRaysPyTools.py", line 7, in <module>
+    from HexRaysPyTools.callbacks import action_manager, hx_callback_manager
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\HexRaysPyTools\callbacks\__init__.py", line 3, in <module>
+    from . import form_requests
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\HexRaysPyTools\callbacks\form_requests.py", line 5, in <module>
+    import HexRaysPyTools.core.classes as classes
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\HexRaysPyTools\core\classes.py", line 5, in <module>
+    from PySide6 import QtCore, QtGui
+  File "D:\tools\IDA 9.4\python\PySide6\__init__.py", line 26, in <module>
+    _verify_prerequisites()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\tools\IDA 9.4\python\PySide6\__init__.py", line 19, in _verify_prerequisites
+    raise ImportError("PySide6 can only be used from the GUI version of IDA")
+ImportError: PySide6 can only be used from the GUI version of IDA
+
+C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\iis_helper_classes.py: undefined function __plugins__iis_helper_classes.PLUGIN_ENTRY
+C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\lucid_plugin.py: PySide6 can only be used from the GUI version of IDA
+Traceback (most recent call last):
+  File "D:\tools\IDA 9.4\python\ida_idaapi.py", line 698, in IDAPython_ExecScript
+    exec(code, g)
+    ~~~~^^^^^^^^^
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\lucid_plugin.py", line 6, in <module>
+    import lucid
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\lucid\__init__.py", line 1, in <module>
+    from lucid.core import LucidCore
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\lucid\core.py", line 6, in <module>
+    from lucid.ui.explorer import MicrocodeExplorer
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\lucid\ui\explorer.py", line 10, in <module>
+    from PyQt5 import QtWidgets, QtGui, QtCore, sip
+  File "D:\tools\IDA 9.4\python\PyQt5\__init__.py", line 17, in <module>
+    from . import sip, Qt, QtCore, QtGui, QtWidgets  # noqa
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\tools\IDA 9.4\python\PyQt5\Qt.py", line 7, in <module>
+    from .QtCore import *  # noqa
+    ^^^^^^^^^^^^^^^^^^^^^
+  File "D:\tools\IDA 9.4\python\PyQt5\QtCore.py", line 6, in <module>
+    import PySide6.QtCore as _pyside6_qtcore
+  File "D:\tools\IDA 9.4\python\PySide6\__init__.py", line 26, in <module>
+    _verify_prerequisites()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\tools\IDA 9.4\python\PySide6\__init__.py", line 19, in _verify_prerequisites
+    raise ImportError("PySide6 can only be used from the GUI version of IDA")
+ImportError: PySide6 can only be used from the GUI version of IDA
+
+[Rikugan] Plugin loaded (v1.14.0)
+Database D:\Projects\trex-ida\tests\e2e\fixture.exe.i64 already exists.
+Do you want to overwrite it? -> ~L~oad existing
+
+  bytes   pages size description
+--------- ----- ---- --------------------------------------------
+   761856    93 8192 allocating memory for b-tree...
+   434176    53 8192 allocating memory for virtual array...
+   262144    32 8192 allocating memory for name pointers...
+-----------------------------------------------------------------
+  1458176            total memory allocated
+
+Loading processor module D:\tools\IDA 9.4\procs\pc.dll for metapc...OK
+Loading type libraries...
+Autoanalysis subsystem has been initialized.
+
+LoadLibrary(C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\bindiff8_ida.dll) error: The specified procedure could not be found.
+C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\bindiff8_ida.dll: can't load file
+
+LoadLibrary(C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\bindiff8_ida64.dll) error: The specified module could not be found.
+C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\bindiff8_ida64.dll: can't load file
+
+LoadLibrary(C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\binexport12_ida.dll) error: The specified procedure could not be found.
+C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\binexport12_ida.dll: can't load file
+
+LoadLibrary(C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\binexport12_ida64.dll) error: The specified module could not be found.
+C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\binexport12_ida64.dll: can't load file
+C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\D810.py: Traceback (most recent call last):
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\D810.py", line 834, in PLUGIN_ENTRY
+    return D810Plugin()
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\D810.py", line 770, in __init__
+    super().__init__(
+    ~~~~~~~~~~~~~~~~^
+        global_name="D810",
+        ^^^^^^^^^^^^^^^^^^^
+        base_package_name="d810",
+        ^^^^^^^^^^^^^^^^^^^^^^^^^
+        plugin_class="d810.manager.D810State",
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\D810.py", line 685, in __init__
+    self.plugin = self._import_plugin_cls()
+                  ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\D810.py", line 689, in _import_plugin_cls
+    mod = importlib.import_module(self.plugin_module)
+  File "C:\Users\ADMIN\AppData\Local\Programs\Python\Python313\Lib\importlib\__init__.py", line 88, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1387, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1331, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 935, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 1023, in exec_module
+  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\d810\manager.py", line 23, in <module>
+    from d810.ui.ida_ui import D810GUI
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\rikugan_plugin.py", line 38, in _guarded_import
+    return _shiboken_import(*args, **kwargs)
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\d810\ui\ida_ui.py", line 13, in <module>
+    from d810.qt_shim import QtCore, QtWidgets, qt_flag_or
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\rikugan_plugin.py", line 35, in _guarded_import
+    return importlib.__import__(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\d810\qt_shim.py", line 149, in <module>
+    raise ImportError(
+    ...<2 lines>...
+    ) from None
+ImportError: Neither PySide6 nor PyQt5 could be imported. Please ensure one of them is installed.
+
+C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\HexRaysPyTools.py: PySide6 can only be used from the GUI version of IDA
+Traceback (most recent call last):
+  File "D:\tools\IDA 9.4\python\ida_idaapi.py", line 698, in IDAPython_ExecScript
+    exec(code, g)
+    ~~~~^^^^^^^^^
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\HexRaysPyTools.py", line 7, in <module>
+    from HexRaysPyTools.callbacks import action_manager, hx_callback_manager
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\rikugan_plugin.py", line 38, in _guarded_import
+    return _shiboken_import(*args, **kwargs)
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\HexRaysPyTools\callbacks\__init__.py", line 3, in <module>
+    from . import form_requests
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\rikugan_plugin.py", line 35, in _guarded_import
+    return importlib.__import__(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\HexRaysPyTools\callbacks\form_requests.py", line 5, in <module>
+    import HexRaysPyTools.core.classes as classes
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\rikugan_plugin.py", line 35, in _guarded_import
+    return importlib.__import__(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\HexRaysPyTools\core\classes.py", line 5, in <module>
+    from PySide6 import QtCore, QtGui
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\rikugan_plugin.py", line 35, in _guarded_import
+    return importlib.__import__(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "D:\tools\IDA 9.4\python\PySide6\__init__.py", line 26, in <module>
+    _verify_prerequisites()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\tools\IDA 9.4\python\PySide6\__init__.py", line 19, in _verify_prerequisites
+    raise ImportError("PySide6 can only be used from the GUI version of IDA")
+ImportError: PySide6 can only be used from the GUI version of IDA
+
+C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\iis_helper_classes.py: undefined function __plugins__iis_helper_classes.PLUGIN_ENTRY
+C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\lucid_plugin.py: PySide6 can only be used from the GUI version of IDA
+Traceback (most recent call last):
+  File "D:\tools\IDA 9.4\python\ida_idaapi.py", line 698, in IDAPython_ExecScript
+    exec(code, g)
+    ~~~~^^^^^^^^^
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\lucid_plugin.py", line 6, in <module>
+    import lucid
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\rikugan_plugin.py", line 38, in _guarded_import
+    return _shiboken_import(*args, **kwargs)
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\lucid\__init__.py", line 1, in <module>
+    from lucid.core import LucidCore
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\rikugan_plugin.py", line 35, in _guarded_import
+    return importlib.__import__(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\lucid\core.py", line 6, in <module>
+    from lucid.ui.explorer import MicrocodeExplorer
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\rikugan_plugin.py", line 35, in _guarded_import
+    return importlib.__import__(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\lucid\ui\explorer.py", line 10, in <module>
+    from PyQt5 import QtWidgets, QtGui, QtCore, sip
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\rikugan_plugin.py", line 35, in _guarded_import
+    return importlib.__import__(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "D:\tools\IDA 9.4\python\PyQt5\__init__.py", line 17, in <module>
+    from . import sip, Qt, QtCore, QtGui, QtWidgets  # noqa
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\rikugan_plugin.py", line 35, in _guarded_import
+    return importlib.__import__(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "D:\tools\IDA 9.4\python\PyQt5\Qt.py", line 7, in <module>
+    from .QtCore import *  # noqa
+    ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\rikugan_plugin.py", line 35, in _guarded_import
+    return importlib.__import__(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "D:\tools\IDA 9.4\python\PyQt5\QtCore.py", line 6, in <module>
+    import PySide6.QtCore as _pyside6_qtcore
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\rikugan_plugin.py", line 35, in _guarded_import
+    return importlib.__import__(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "D:\tools\IDA 9.4\python\PySide6\__init__.py", line 26, in <module>
+    _verify_prerequisites()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\tools\IDA 9.4\python\PySide6\__init__.py", line 19, in _verify_prerequisites
+    raise ImportError("PySide6 can only be used from the GUI version of IDA")
+ImportError: PySide6 can only be used from the GUI version of IDA
+
+2026-09-19 11:22:03,209 - symless - ERROR    symless_plugin.py:00114 - find_extensions                - Error while loading extension symless.plugins.builder:
+2026-09-19 11:22:03,222 - symless - ERROR    symless_plugin.py:00115 - find_extensions                - ImportError('PySide6 can only be used from the GUI version of IDA')
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\symless_plugin.py", line 111, in find_extensions
+    spec.loader.exec_module(module)
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "<frozen importlib._bootstrap_external>", line 1023, in exec_module
+  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\symless\plugins\builder.py", line 8, in <module>
+    from PyQt5 import QtCore, QtGui, QtWidgets
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\rikugan_plugin.py", line 38, in _guarded_import
+    return _shiboken_import(*args, **kwargs)
+  File "D:\tools\IDA 9.4\python\PyQt5\__init__.py", line 17, in <module>
+    from . import sip, Qt, QtCore, QtGui, QtWidgets  # noqa
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\rikugan_plugin.py", line 35, in _guarded_import
+    return importlib.__import__(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "D:\tools\IDA 9.4\python\PyQt5\Qt.py", line 7, in <module>
+    from .QtCore import *  # noqa
+    ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\rikugan_plugin.py", line 35, in _guarded_import
+    return importlib.__import__(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "D:\tools\IDA 9.4\python\PyQt5\QtCore.py", line 6, in <module>
+    import PySide6.QtCore as _pyside6_qtcore
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\rikugan_plugin.py", line 35, in _guarded_import
+    return importlib.__import__(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "D:\tools\IDA 9.4\python\PySide6\__init__.py", line 26, in <module>
+    _verify_prerequisites()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\tools\IDA 9.4\python\PySide6\__init__.py", line 19, in _verify_prerequisites
+    raise ImportError("PySide6 can only be used from the GUI version of IDA")
+ImportError: PySide6 can only be used from the GUI version of IDA
+
+Database for file 'fixture.exe' has been loaded.
+Hex-Rays Decompiler plugin has been loaded (v9.4.0.260610)
+  License: 96-A239-C821-C1  (1 user)
+  The hotkeys are F5: decompile, Ctrl-F5: decompile all.
+
+  Please check the Edit/Plugins menu for more information.
+ApplyCalleeTypeEx ready
+
+LoadLibrary(C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\bindiff8_ida.dll) error: The specified procedure could not be found.
+C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\bindiff8_ida.dll: can't load file
+
+LoadLibrary(C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\bindiff8_ida64.dll) error: The specified module could not be found.
+C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\bindiff8_ida64.dll: can't load file
+
+LoadLibrary(C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\binexport12_ida.dll) error: The specified procedure could not be found.
+C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\binexport12_ida.dll: can't load file
+
+LoadLibrary(C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\binexport12_ida64.dll) error: The specified module could not be found.
+C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\binexport12_ida64.dll: can't load file
+C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\D810.py: Traceback (most recent call last):
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\D810.py", line 834, in PLUGIN_ENTRY
+    return D810Plugin()
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\D810.py", line 770, in __init__
+    super().__init__(
+    ~~~~~~~~~~~~~~~~^
+        global_name="D810",
+        ^^^^^^^^^^^^^^^^^^^
+        base_package_name="d810",
+        ^^^^^^^^^^^^^^^^^^^^^^^^^
+        plugin_class="d810.manager.D810State",
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\D810.py", line 685, in __init__
+    self.plugin = self._import_plugin_cls()
+                  ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\D810.py", line 689, in _import_plugin_cls
+    mod = importlib.import_module(self.plugin_module)
+  File "C:\Users\ADMIN\AppData\Local\Programs\Python\Python313\Lib\importlib\__init__.py", line 88, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1387, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1331, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 935, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 1023, in exec_module
+  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\d810\manager.py", line 23, in <module>
+    from d810.ui.ida_ui import D810GUI
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\rikugan_plugin.py", line 38, in _guarded_import
+    return _shiboken_import(*args, **kwargs)
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\d810\ui\ida_ui.py", line 13, in <module>
+    from d810.qt_shim import QtCore, QtWidgets, qt_flag_or
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\rikugan_plugin.py", line 35, in _guarded_import
+    return importlib.__import__(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\d810\qt_shim.py", line 149, in <module>
+    raise ImportError(
+    ...<2 lines>...
+    ) from None
+ImportError: Neither PySide6 nor PyQt5 could be imported. Please ensure one of them is installed.
+
+[doki] loaded 88 theme(s) from catalog C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\doki-theme\theme_catalog.json (0 skipped)
+[doki] menu actions registered under Options.
+[doki] loaded (v0.1.0, SDK 930) - 88 theme(s)
+[doki]   apply_live: sticker anchor='bottom' (forced='bottom')
+[doki] restored last character: Echidna
+Hex-rays version 9.4.0.260610 has been detected, gooMBA plugin ready to use
+C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\hashdb.py:901: SyntaxWarning: invalid escape sequence '\:'
+  "<##New name\: :{new_name}>"
+================================================================================
+   _   _           _    ____________ 
+  | | | |         | |   |  _  \ ___ \ 
+  | |_| | __ _ ___| |__ | | | | |_/ /
+  |  _  |/ _` / __| '_ \| | | | ___ \ 
+  | | | | (_| \__ \ | | | |/ /| |_/ /
+  \_| |_/\__,_|___/_| |_|___/ \____/ 
+
+
+HashDB v1.10.0 by @herrcore
+
+HashDB search shortcut key is Alt+`
+================================================================================
+HashDB configuration loaded!
+C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\HexRaysPyTools.py: PySide6 can only be used from the GUI version of IDA
+Traceback (most recent call last):
+  File "D:\tools\IDA 9.4\python\ida_idaapi.py", line 698, in IDAPython_ExecScript
+    exec(code, g)
+    ~~~~^^^^^^^^^
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\HexRaysPyTools.py", line 7, in <module>
+    from HexRaysPyTools.callbacks import action_manager, hx_callback_manager
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\rikugan_plugin.py", line 38, in _guarded_import
+    return _shiboken_import(*args, **kwargs)
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\HexRaysPyTools\callbacks\__init__.py", line 3, in <module>
+    from . import form_requests
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\rikugan_plugin.py", line 35, in _guarded_import
+    return importlib.__import__(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\HexRaysPyTools\callbacks\form_requests.py", line 5, in <module>
+    import HexRaysPyTools.core.classes as classes
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\rikugan_plugin.py", line 35, in _guarded_import
+    return importlib.__import__(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\HexRaysPyTools\core\classes.py", line 5, in <module>
+    from PySide6 import QtCore, QtGui
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\rikugan_plugin.py", line 35, in _guarded_import
+    return importlib.__import__(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "D:\tools\IDA 9.4\python\PySide6\__init__.py", line 26, in <module>
+    _verify_prerequisites()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\tools\IDA 9.4\python\PySide6\__init__.py", line 19, in _verify_prerequisites
+    raise ImportError("PySide6 can only be used from the GUI version of IDA")
+ImportError: PySide6 can only be used from the GUI version of IDA
+
+HRDevHelper: loading C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\cfg\HRDevHelper.cfg...
+Ctrl-. -> HRDevHelper:Show ctree
+Ctrl-Shift-. -> HRDevHelper:Show sub-tree
+C -> HRDevHelper:Show context
+C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\iis_helper_classes.py: undefined function __plugins__iis_helper_classes.PLUGIN_ENTRY
+C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\lucid_plugin.py: PySide6 can only be used from the GUI version of IDA
+Traceback (most recent call last):
+  File "D:\tools\IDA 9.4\python\ida_idaapi.py", line 698, in IDAPython_ExecScript
+    exec(code, g)
+    ~~~~^^^^^^^^^
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\lucid_plugin.py", line 6, in <module>
+    import lucid
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\rikugan_plugin.py", line 38, in _guarded_import
+    return _shiboken_import(*args, **kwargs)
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\lucid\__init__.py", line 1, in <module>
+    from lucid.core import LucidCore
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\rikugan_plugin.py", line 35, in _guarded_import
+    return importlib.__import__(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\lucid\core.py", line 6, in <module>
+    from lucid.ui.explorer import MicrocodeExplorer
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\rikugan_plugin.py", line 35, in _guarded_import
+    return importlib.__import__(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\lucid\ui\explorer.py", line 10, in <module>
+    from PyQt5 import QtWidgets, QtGui, QtCore, sip
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\rikugan_plugin.py", line 35, in _guarded_import
+    return importlib.__import__(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "D:\tools\IDA 9.4\python\PyQt5\__init__.py", line 17, in <module>
+    from . import sip, Qt, QtCore, QtGui, QtWidgets  # noqa
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\rikugan_plugin.py", line 35, in _guarded_import
+    return importlib.__import__(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "D:\tools\IDA 9.4\python\PyQt5\Qt.py", line 7, in <module>
+    from .QtCore import *  # noqa
+    ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\rikugan_plugin.py", line 35, in _guarded_import
+    return importlib.__import__(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "D:\tools\IDA 9.4\python\PyQt5\QtCore.py", line 6, in <module>
+    import PySide6.QtCore as _pyside6_qtcore
+  File "C:\Users\ADMIN\AppData\Roaming\Hex-Rays\IDA Pro\plugins\rikugan_plugin.py", line 35, in _guarded_import
+    return importlib.__import__(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "D:\tools\IDA 9.4\python\PySide6\__init__.py", line 26, in <module>
+    _verify_prerequisites()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\tools\IDA 9.4\python\PySide6\__init__.py", line 19, in _verify_prerequisites
+    raise ImportError("PySide6 can only be used from the GUI version of IDA")
+ImportError: PySide6 can only be used from the GUI version of IDA
+
+############### PyClassInformer (Yet Another RTTI Parser) ###############
+Press 'Alt-Shift-L' to display the PyClassInformer result.
+[trexida] loaded v0.1.0 (built Sep 19 2026 11:02:04), decompiler 9.4.0.260610 (7/7 actions registered, 7 attached to Edit/Plugins/)
+Function Embedding Extractor plugin loaded.
+Using type parser: legacy
+PARSE void trex_probe_var;       ok=None size=18446744073709551615 is_void=False dstr=?
+PARSE uint32_t trex_probe_var;   ok=_trex_probe_var size=4 is_void=False dstr=uint32_t
+PARSE t1* trex_probe_var;        ok=None size=18446744073709551615 is_void=False dstr=?
+C:\Users\ADMIN\AppData\Local\Temp\voidprobe.py:16: DeprecationWarning: getn_func() is deprecated, use get_func_ea_by_num or get_func_entry_info_by_num()
+  fn = ida_funcs.getn_func(0)
+FN 140001000 sub_140001000
+C:\Users\ADMIN\AppData\Local\Temp\voidprobe.py: locate_lvar() missing 1 required positional argument: 'varname'
+Traceback (most recent call last):
+  File "D:\tools\IDA 9.4\python\ida_idaapi.py", line 698, in IDAPython_ExecScript
+    exec(code, g)
+    ~~~~^^^^^^^^^
+  File "C:\Users\ADMIN\AppData\Local\Temp\voidprobe.py", line 18, in <module>
+    ll = ida_hexrays.locate_lvar(fn.start_ea, "rcx0")
+TypeError: locate_lvar() missing 1 required positional argument: 'varname'
+ -> OK
+Flushing buffers, please wait...ok
+Function Embedding Extractor plugin terminated.
+HashDB settings saved
+HashDB: HashDB terminated...
+[doki] unloaded
+Unloading IDP module D:\tools\IDA 9.4\procs\pc.dll...

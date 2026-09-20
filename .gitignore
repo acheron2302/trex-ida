@@ -1,0 +1,15 @@
+build/
+build-icx/
+build-msvc/
+*.user
+.vs/
+__pycache__/
+build-dbg/
+tests/e2e/fixture.exe
+*.i64
+*.id0
+*.id1
+*.id2
+*.nam
+*.til
+*.trex.*
