@@ -1,0 +1,2 @@
+[submodule "third_party/trex"]
+	url = https://github.com/secure-foundations/trex
