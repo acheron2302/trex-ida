@@ -77,6 +77,7 @@ unit tests and the differential gate possible outside IDA.
 | Build tools | CMake ≥ 3.25, Ninja. |
 | Tests | Python 3 (stdlib only) and an installed IDA (`IDADIR`) for the end-to-end stages. |
 | Differential gate | A Rust toolchain — only `scripts/diff_oracle.py` needs it. |
+| Optional Qt types window | A `QT_NAMESPACE=QT` Qt matching the target IDA (9.4 → Qt 6.8.2) for the dockable types window. Build it once with `cmake --build build --target build_qt` (uses the SDK's `ida-cmake/cmake/QtSupport.cmake`), or point `-DTREX_QT_ROOT=` at an existing install. Without it, the plugin still builds and works minus the window. |
 
 The C++ core targets C++20 with exceptions enabled (`/EHsc`, the core reports invariant violations
 by throwing, see `include/trex/error.hpp`) and the static CRT
@@ -84,17 +85,20 @@ by throwing, see `include/trex/error.hpp`) and the static CRT
 
 ## Build
 
-```bat
-set IDASDK=E:\tools\ida-sdk
-set IDADIR=D:\tools\IDA 9.4
+The SDK is located via the `IDASDK` environment variable (the SDK root, e.g. `E:\dev\ida-sdk-9.3`,
+parent of `src/`). Set `IDADIR` to deploy the built DLL into IDA's `plugins/` directory.
 
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release ^
-      -DIDA_SDK_DIR="%IDASDK%\src" -DIDA_INSTALL_DIR="%IDADIR%"
+```bat
+set IDASDK=E:\dev\ida-sdk-9.3
+set IDADIR=E:\ida pro 9.4
+
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 
-`-DIDA_SDK_DIR` defaults to `%IDASDK%\src`, so setting the environment variable is enough. Omit
-`-DIDA_INSTALL_DIR` to build without deploying.
+The CMake script auto-resolves the SDK root to its `src/` directory. To point CMake at a layout
+that does not follow the convention above, pass `-DIDA_SDK_DIR=<root>` (auto-appends `/src`) or
+`-DIDA_SDK_SRC_DIR=<src>` (used verbatim). Omit `IDADIR` to build without deploying.
 
 `scripts\build-*.bat` are thin wrappers around the same configure+build with the developer's paths
 baked in:
@@ -137,21 +141,28 @@ exits (which is also why the post-build deploy fails while IDA holds the plugin,
 [Build](#build)).
 
 ## Use
-
 Everything lives in the **Edit/Plugins/TRex** submenu. The same operations are reachable from
 IDAPython as `ida_idaapi.load_and_run_plugin("trexida", <arg>)`, which is how the headless tests
 drive them.
 
+Clicking the plugin's own **Edit/Plugins** entry (or running `trexida` with no argument from a
+script that uses `load_and_run_plugin`) opens a modal **TRex operations** chooser listing every
+row below; pick one and the same body runs as if you had clicked its menu action. In `-A` batch
+mode `run(0)` keeps the diagnostics-probe meaning (no chooser is available headless).
 | Menu action | `run()` arg | Effect |
 |---|---|---|
+
+
 | Reconstruct types (current function) | `1` | Lifts and analyses the function under the cursor plus its direct callees (bounded at 32 functions). In the GUI this is also what the plugin's own entry in the plug-in list runs. |
 | Reconstruct types (all functions) | `2` | Whole database, with a wait box and a working **Cancel** between functions. |
 | Show last type reconstruction | `3` | Prints the variable report, the C-like types and the structural types to the message window. |
 | Apply inferred types to database | `4` | Creates the inferred types in the local TIL and assigns them to the variables (see below). |
 | Export last results to files | `5` | Writes `<database>.trex.structural`, `<database>.trex.c`, `<database>.trex.vars.tsv`. |
 | Dump IL of current function (diagnostics) | `6` | Prints the lifted IL and the variable/base-type report, and validates every emitted instruction. |
-| Probe microcode (diagnostics) | `0` | Prints the decompiler version, the maturity level each request returns and the lvars of one function. In `-A` batch mode `run(0)` keeps this meaning. |
+| Probe microcode (diagnostics) | `0` | Prints the decompiler version, the maturity level each request returns and the lvars of one function. In `-A` batch mode `run(0)` keeps this meaning; in the GUI the plugin's own **Edit/Plugins** entry opens the chooser described above instead. |
 | Toggle inter-procedural propagation | `7` | Flips the propagation pass for the next reconstruction. |
+| Reconstruct types (current function + call tree) | `8` | Like arg `1`, but walks the function's call tree transitively (capped at 256 functions) so inter-procedural propagation reaches the deeper callees too. |
+| Open types window | `9` | Opens the dockable Qt window: list of reconstructed structs, their declarations, the variables of each type, plus Copy/Apply/Rescan/Export buttons. Logs `types window: not available in this build` and exits cleanly when the plugin was built without Qt. |
 
 ### Environment variables
 

@@ -20,6 +20,7 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include <algorithm>
 
 #include <ida.hpp>
 #include <idp.hpp>
@@ -33,6 +34,10 @@
 #include "trex/version.hpp"
 #include "ida_lift_config.hpp"
 #include "ida_lift.hpp"
+#include "trex_window.hpp"
+
+#include "decl_blocks.hpp"
+
 
 // The inference core (structural + aggregate analysis + output) is gated while it is being
 // ported; the IDA frontend and its diagnostics work without it.
@@ -62,8 +67,9 @@ enum run_arg_t
   ARG_EXPORT = 5,
   ARG_LIFT = 6,
   ARG_INTERPROC = 7,
+  ARG_INFER_CURRENT_DEEP = 8,
+  ARG_TYPES_WINDOW = 9,
 };
-
 /// Inter-procedural type propagation: joins the types of variables linked by a direct call with
 /// those of the callee's parameters/returned value, aggregating across call sites (upstream paper,
 /// §3.3 footnote 9). On by default; `TREXIDA_INTERPROC=0` or the toggle action turns it off.
@@ -279,6 +285,59 @@ std::vector<func_t *> current_scope_functions()
   return out;
 }
 
+/// Root function + the transitive closure of its direct callees (BFS over instruction-level code
+/// refs, the same func_item_iterator_t/fcref walk current_scope_functions() uses, but not limited
+/// to depth 1). Capped: a deep scan of a huge call tree must not decompile the world.
+std::vector<func_t *> deep_scope_functions(func_t *root)
+{
+  std::vector<func_t *> out;
+  if ( root == nullptr || root->size() == 0 )
+    return out;
+  out.push_back(root);
+
+  const size_t kMaxDeepScopeFunctions = 256;
+  std::set<ea_t> seen;
+  seen.insert(root->start_ea);
+
+  // Cap enforced before each push_back so one high-fan-out function cannot blow past the limit;
+  // once hit, we stop walking the current function's references and break out of the BFS.
+  bool capped = false;
+  for ( size_t i = 0; i < out.size() && !capped; ++i )
+  {
+    func_item_iterator_t it(out[i]);
+    for ( bool ok = it.first(); ok; ok = it.next_head() )
+    {
+      insn_t insn;
+      const ea_t ea = it.current();
+      if ( decode_insn(&insn, ea) <= 0 || !is_call_insn(insn) )
+        continue;
+      for ( ea_t ref = get_first_fcref_from(ea); ref != BADADDR; ref = get_next_fcref_from(ea, ref) )
+      {
+        if (out.size() >= kMaxDeepScopeFunctions)
+        {
+          msg("[trexida] deep scan: call tree capped at %zu functions\n", kMaxDeepScopeFunctions);
+          capped = true;
+          break;
+        }
+        func_t *callee = get_func(ref);
+        if ( callee != nullptr && callee->size() > 0 && seen.insert(callee->start_ea).second )
+          out.push_back(callee);
+      }
+      if (capped)
+        break;
+    }
+  }
+
+  std::sort(out.begin(), out.end(), [](func_t *a, func_t *b) { return a->start_ea < b->start_ea; });
+
+  qstring fname;
+  get_func_name(&fname, root->start_ea);
+  msg("[trexida] deep scan: root %s, %d function(s) in the call tree\n",
+      fname.c_str(), (int)out.size());
+  return out;
+}
+
+
 std::vector<func_t *> all_scope_functions()
 {
   std::vector<func_t *> out;
@@ -423,6 +482,8 @@ void run_lift(const std::vector<func_t *> &functions, bool print_il)
 #if TREX_HAVE_INFERENCE
 
 /// Everything the last run produced, kept for the show/export/apply actions.
+std::string declarations_only(const std::string &c_like_text);
+
 struct LastRun
 {
   bool valid = false;
@@ -430,6 +491,7 @@ struct LastRun
   std::string c_like_text;
   std::string report_tsv;
   std::vector<trex::ida::VariableRow> rows;  ///< per-variable widths and IDA base types
+
   std::optional<trex::SerializableStructuralTypes<trex::ExternalVariable>> types;
   std::shared_ptr<const trex::StructuralTypes> structured_types;
   int functions_lifted = 0;
@@ -442,6 +504,55 @@ LastRun &last_run()
   static LastRun run;
   return run;
 }
+
+/// Build a `trex::ui::WindowModel` from the last inference. Aggregates are taken straight from
+/// the printer's C-like text; the variable-uses list joins each variable's type name with the
+/// function/ea it lives in (same shape `run_apply()` parses).
+trex::ui::WindowModel build_window_model(const LastRun &run)
+{
+  trex::ui::WindowModel m;
+  if ( !run.valid || !run.types.has_value() )
+    return m;
+
+  const std::string decls = declarations_only(run.c_like_text);
+  std::vector<trex::decl::Block> blocks = trex::decl::parse_decl_blocks(decls);
+  const std::map<std::string, std::size_t> sizes = trex::decl::compute_block_sizes(blocks);
+
+  for ( const trex::decl::Block &b : blocks )
+  {
+    trex::ui::StructInfo si;
+    si.kind = b.kind;
+    si.name = b.name;
+    si.declaration = trex::decl::block_text(b);
+    auto it = sizes.find(b.name);
+    if ( it != sizes.end() )
+      si.size = it->second;
+    si.member_count = b.members.size();
+    m.structs.push_back(std::move(si));
+  }
+
+  trex::PrintableCTypes<trex::ExternalVariable> printer(*run.types);
+  for ( const auto &entry : run.types->var_type_iter() )
+  {
+    const std::string &var_name = entry.first.name;
+    trex::ui::VarUse vu;
+    vu.type_name = printer.ext_type_name_at(entry.second);
+
+    // var_name is `<lvar>@<func>@<ea-hex>` (the shape run_apply() parses).
+    size_t at1 = var_name.find('@');
+    if ( at1 == std::string::npos )
+      continue;
+    size_t at2 = var_name.find('@', at1 + 1);
+    if ( at2 == std::string::npos )
+      continue;
+    vu.lvar = var_name.substr(0, at1);
+    vu.func = var_name.substr(at1 + 1, at2 - at1 - 1);
+    vu.ea_hex = var_name.substr(at2 + 1);
+    m.uses.push_back(std::move(vu));
+  }
+  return m;
+}
+
 
 std::string hex8(ea_t ea)
 {
@@ -747,7 +858,11 @@ void run_inference(const std::vector<func_t *> &functions)
 
   if ( !headless && is_idaq() )
     hide_wait_box();
+
+  // Refresh the types window if it is open (or leave it untouched if it has not been shown).
+  trex::ui::update_types_window(build_window_model(run));
 }
+
 
 /// Fixed-width typedefs the printer emits; IDA's local TIL is not guaranteed to have them.
 const char *kTypePreamble =
@@ -842,23 +957,7 @@ struct PreparedDeclarations
   std::map<std::string, size_t> sizes;  ///< aggregate name -> size, as computed for the layout
 };
 
-struct DeclMember
-{
-  std::string indent;
-  std::string type;      ///< as printed
-  std::string name;      ///< `field_12` / `alt_2`
-  size_t offset = 0;     ///< from the `field_<hex>` suffix; 0 for union alternatives
-};
 
-struct DeclBlock
-{
-  std::string kind;      ///< "struct" or "union"
-  std::string name;      ///< `tN`
-  std::vector<std::string> head;  ///< the `struct tN {` line (kept verbatim)
-  std::vector<DeclMember> members;
-  std::vector<std::string> tail;  ///< the `};` line
-  std::vector<std::string> by_value_refs;
-};
 
 /// Size of a printed type, when it is statically known from the text plus the aggregate sizes
 /// computed so far. `char`/`unsigned char`/`undefinedN`/fixed-width typedefs and pointers cover
@@ -951,7 +1050,6 @@ std::string representable_variable_type(const std::string &printed, size_t width
   return "unsigned char" + width_suffix(width);
 }
 
-
 /// Split the printer's text into aggregate blocks (everything else is kept verbatim), work out the
 /// aggregates' sizes, then emit the blocks in dependency order with unrepresentable members
 /// replaced by exact-size gaps.
@@ -960,133 +1058,41 @@ PreparedDeclarations prepare_declarations(const std::string &decls,
                                           const trex::Container<trex::StructuralType> &types)
 {
   PreparedDeclarations out;
-  const std::regex block_open("^(struct|union)[ \t]+(t[0-9]+)[ \t]*\\{[ \t]*\\r?$");
-  const std::regex member_line("^([ \t]+)(.*?)[ \t]+(field|alt)_([0-9A-Fa-f]+)[ \t]*;[ \t]*\\r?$");
 
-  std::vector<std::string> lines;
+  // Non-block lines (typedefs, the Ghidra-shaped scalar aliases, any preamble) are kept as
+  // `leftover` and re-prepended verbatim before the emitted aggregates.
+  std::string leftover;
   {
+    const std::regex block_open("^(struct|union)[ \t]+(t[0-9]+)[ \t]*\\{[ \t]*\\r?$");
     std::string line;
     std::istringstream in(decls);
     while ( std::getline(in, line) )
-      lines.push_back(line);
+    {
+      if ( !std::regex_match(line, block_open) )
+        leftover += line + "\n";
+    }
   }
 
-  std::vector<DeclBlock> blocks;
-  std::string leftover;
-  for ( size_t i = 0; i < lines.size(); )
-  {
-    std::smatch m;
-    if ( !std::regex_match(lines[i], m, block_open) )
-    {
-      leftover += lines[i] + "\n";
-      ++i;
-      continue;
-    }
+  std::vector<trex::decl::Block> blocks = trex::decl::parse_decl_blocks(decls);
+  const std::map<std::string, std::size_t> sizes = trex::decl::compute_block_sizes(blocks);
 
-    DeclBlock b;
-    b.kind = m[1].str();
-    b.name = m[2].str();
-    b.head.push_back(lines[i]);
-    for ( ++i; i < lines.size(); ++i )
-    {
-      if ( lines[i].find("};") != std::string::npos )
-      {
-        b.tail.push_back(lines[i]);
-        ++i;
-        break;
-      }
-      std::smatch mm;
-      if ( std::regex_match(lines[i], mm, member_line) )
-      {
-        DeclMember dm;
-        dm.indent = mm[1].str();
-        dm.type = mm[2].str();
-        while ( !dm.type.empty() && dm.type.back() == ' ' )
-          dm.type.pop_back();
-        dm.name = mm[3].str() + "_" + mm[4].str();
-        dm.offset = (mm[3].str() == "field")
-                      ? (size_t)strtoull(mm[4].str().c_str(), nullptr, 16)
-                      : 0;
-        b.members.push_back(dm);
-      }
-    }
-    blocks.push_back(std::move(b));
-  }
-
-  // ---- sizes, in dependency order (a struct's size needs its members' sizes)
-  std::map<std::string, const DeclBlock *> block_of;
-  for ( const DeclBlock &b : blocks )
-    block_of.emplace(b.name, &b);
-
-  std::map<std::string, size_t> sizes;
-  std::set<std::string> in_progress;
+  std::map<std::string, const trex::decl::Block *> block_of;
   std::set<std::string> defined;
-  for ( const DeclBlock &b : blocks )
-    defined.insert(b.name);
-
-  std::function<std::optional<size_t>(const std::string &)> size_of_block =
-    [&](const std::string &name) -> std::optional<size_t>
+  for ( const trex::decl::Block &b : blocks )
   {
-    auto done = sizes.find(name);
-    if ( done != sizes.end() )
-      return done->second;
-    auto it = block_of.find(name);
-    if ( it == block_of.end() || !in_progress.insert(name).second )
-      return std::nullopt;  // undefined, or a cycle: unknown size
-
-    const DeclBlock &b = *it->second;
-    std::optional<size_t> result;
-    if ( b.kind == "union" )
-    {
-      size_t best = 0;
-      bool known = true;
-      for ( const DeclMember &dm : b.members )
-      {
-        std::optional<size_t> sz = printed_type_size(dm.type, sizes);
-        if ( !sz.has_value() )
-          sz = size_of_block(dm.type);
-        if ( !sz.has_value() )
-          known = false;
-        else
-          best = std::max(best, *sz);
-      }
-      result = known ? std::optional<size_t>(best) : std::nullopt;
-    }
-    else
-    {
-      size_t end = 0;
-      bool known = true;
-      for ( const DeclMember &dm : b.members )
-      {
-        std::optional<size_t> sz = printed_type_size(dm.type, sizes);
-        if ( !sz.has_value() )
-          sz = size_of_block(dm.type);
-        if ( !sz.has_value() )
-          known = false;
-        else
-          end = std::max(end, dm.offset + *sz);
-      }
-      result = known ? std::optional<size_t>(end) : std::nullopt;
-    }
-
-    in_progress.erase(name);
-    if ( result.has_value() )
-      sizes[name] = *result;
-    return result;
-  };
-
-  for ( const DeclBlock &b : blocks )
-    size_of_block(b.name);
+    block_of.emplace(b.name, &b);
+    defined.insert(b.name);
+  }
 
   // ---- emit, in dependency order, replacing what IDA cannot represent
   std::set<std::string> emitted;
-  std::function<void(const DeclBlock &)> emit_block = [&](const DeclBlock &b)
+  std::function<void(const trex::decl::Block &)> emit_block = [&](const trex::decl::Block &b)
   {
     if ( !emitted.insert(b.name).second )
       return;
 
     // by-value members must be complete before this aggregate is parsed
-    for ( const DeclMember &dm : b.members )
+    for ( const trex::decl::Member &dm : b.members )
     {
       if ( dm.type.find('*') == std::string::npos && block_of.count(dm.type) != 0 )
         emit_block(*block_of[dm.type]);
@@ -1097,7 +1103,7 @@ PreparedDeclarations prepare_declarations(const std::string &decls,
 
     for ( size_t i = 0; i < b.members.size(); ++i )
     {
-      const DeclMember &dm = b.members[i];
+      const trex::decl::Member &dm = b.members[i];
       const std::string indent = dm.indent.empty() ? "  " : dm.indent;
 
       std::string type = dm.type;
@@ -1184,12 +1190,12 @@ PreparedDeclarations prepare_declarations(const std::string &decls,
       out.text += l + "\n";
   };
 
-  for ( const DeclBlock &b : blocks )
+  for ( const trex::decl::Block &b : blocks )
     emit_block(b);
 
   // typedefs for every aggregate, so bare `tN` references resolve
   std::string typedefs;
-  for ( const DeclBlock &b : blocks )
+  for ( const trex::decl::Block &b : blocks )
     typedefs += "typedef " + b.kind + " " + b.name + " " + b.name + ";\n";
 
   out.text = kTypePreamble + std::string("\n") + typedefs + "\n" + leftover + out.text;
@@ -1404,6 +1410,10 @@ void show_last_run()
 
 #endif // TREX_HAVE_INFERENCE
 
+
+/// Modal chooser shown when the user picks the plugin's own "Edit/Plugins" entry. Lists every
+/// `kTrexOps` row: action name + description, both columns wide enough for the tooltip text.
+
 struct trex_action_handler_t : public action_handler_t
 {
   size_t arg;
@@ -1421,7 +1431,7 @@ struct trex_action_handler_t : public action_handler_t
   }
 };
 
-enum { NUM_ACTIONS = 8 };
+enum { NUM_ACTIONS = 10 };
 
 /// The operations the plugin offers, in the order they are listed in the menu/chooser. Single
 /// source of truth: `init()` registers one action per entry, and the modal chooser (shown when
@@ -1461,7 +1471,38 @@ const std::array<trex_op_t, NUM_ACTIONS> kTrexOps = { {
     "Toggle inter-procedural propagation",
     "Join types across call sites (callee parameters and returned values) or restore per-function "
     "inference", ARG_INTERPROC },
+  { "trexida:infer_current_deep", "TRex: reconstruct types (current function + call tree)",
+    "Reconstruct types (function + call tree)",
+    "Run TRex on the function under the cursor and every function it transitively calls, so types "
+    "propagate through nested calls", ARG_INFER_CURRENT_DEEP },
+  { "trexida:window", "TRex: open types window",
+    "Open types window",
+    "Qt window: list of reconstructed structs, their definition, the variables of each type, plus "
+    "copy/apply/export", ARG_TYPES_WINDOW },
 } };
+
+/// Modal chooser shown when the user picks the plugin's own "Edit/Plugins" entry. Lists every
+/// `kTrexOps` row: action name + description, both columns wide enough for the tooltip text.
+struct ops_chooser_t final : chooser_t
+{
+  static const int kOpsChooserWidths[2];
+  static const char *const kOpsChooserHeader[2];
+
+  ops_chooser_t()
+    : chooser_t(CH_MODAL | CH_KEEP, 2, kOpsChooserWidths, kOpsChooserHeader, "TRex operations") {}
+
+  size_t idaapi get_count() const override { return kTrexOps.size(); }
+  void idaapi get_row(qstrvec_t *cols, int *icon, chooser_item_attrs_t *attrs, size_t n) const override
+  {
+    (*cols)[0] = kTrexOps[n].brief;
+    (*cols)[1] = kTrexOps[n].tooltip;
+  }
+};
+
+const int ops_chooser_t::kOpsChooserWidths[2] = { 30, 64 };
+const char *const ops_chooser_t::kOpsChooserHeader[2] = { "Operation", "Description" };
+
+
 
 /// Name of the plugin's submenu (the id must be unique; the label is what the user sees).
 const char *const kTrexMenuName = "trexida_submenu";
@@ -1480,11 +1521,28 @@ trex_action_handler_t &handler_for(size_t arg)
     trex_action_handler_t(ARG_EXPORT),
     trex_action_handler_t(ARG_LIFT),
     trex_action_handler_t(ARG_INTERPROC),
+    trex_action_handler_t(ARG_INFER_CURRENT_DEEP),
+    trex_action_handler_t(ARG_TYPES_WINDOW),
   };
   return arg < NUM_ACTIONS ? handlers[arg] : handlers[ARG_PROBE];
 }
 
 } // namespace
+#if !TREX_HAVE_QT
+// Qt-less builds (default in CI): the types window is not compiled. The stubs keep the menu /
+// action wiring callable from `run(arg)` and let the headless arg-9 path print a graceful
+// "not available" line instead of failing.
+namespace trex::ui
+{
+bool qt_available() { return false; }
+void show_types_window(const WindowModel & /*model*/, const WindowCallbacks & /*cbs*/)
+{
+  msg("[trexida] types window: not available in this build (built without Qt)\n");
+}
+void update_types_window(const WindowModel & /*model*/) {}
+} // namespace trex::ui
+#endif
+
 
 bool idaapi trexida_run(size_t arg)
 {
@@ -1496,12 +1554,24 @@ bool idaapi trexida_run(size_t arg)
         run_probe();
         return true;
       case ARG_LIFT:
+
         run_lift(current_scope_functions(), true);
         return true;
 #if TREX_HAVE_INFERENCE
       case ARG_INFER_CURRENT:
         run_inference(current_scope_functions());
         return true;
+      case ARG_INFER_CURRENT_DEEP:
+      {
+        func_t *root = probe_target();
+        if ( root == nullptr )
+        {
+          msg("[trexida] no function in scope\n");
+          return true;
+        }
+        run_inference(deep_scope_functions(root));
+        return true;
+      }
       case ARG_INFER_ALL:
         run_inference(all_scope_functions());
         return true;
@@ -1524,6 +1594,22 @@ bool idaapi trexida_run(size_t arg)
         msg("[trexida] inter-procedural propagation: %s (takes effect on the next reconstruction)\n",
             g_interproc ? "on" : "off");
         return true;
+      case ARG_TYPES_WINDOW:
+      {
+        if ( !trex::ui::qt_available() )
+        {
+          msg("[trexida] types window: not available in this build (built without Qt)\n");
+          return true;
+        }
+        trex::ui::WindowModel model = build_window_model(last_run());
+        trex::ui::WindowCallbacks cbs;
+        cbs.rescan_current_deep = []() { trexida_run(ARG_INFER_CURRENT_DEEP); };
+        cbs.rescan_all          = []() { trexida_run(ARG_INFER_ALL); };
+        cbs.apply               = []() { trexida_run(ARG_APPLY); };
+        cbs.export_files        = []() { trexida_run(ARG_EXPORT); };
+        trex::ui::show_types_window(model, cbs);
+        return true;
+      }
 #endif
       default:
         msg("[trexida] run(arg=%d) is not implemented yet\n", (int)arg);
@@ -1603,16 +1689,17 @@ static void idaapi term()
 
 static bool idaapi run(size_t arg)
 {
-  // The plugin's own "Edit/Plugins" entry can only pass 0. In the GUI that would otherwise be
-  // the diagnostics probe, which is not what clicking the plugin should do: reconstruct the
-  // types of the function under the cursor instead (bounded, cancelable) and point at the TRex
-  // submenu that lists everything. Batch mode keeps the raw meaning of `run(0)` = probe, since
-  // no dialog or menu is available there.
+  // The plugin's own "Edit/Plugins" entry can only pass 0. Show the operation chooser so the
+  // user gets every action (reconstruction, apply, copy, export, diagnostics) at the same
+  // surface, not just one. Batch mode keeps the raw meaning of `run(0)` = probe, since no
+  // dialog or menu is available there.
   if ( arg == ARG_PROBE && is_idaq() )
   {
-    msg("[trexida] reconstructing types for the current function; the full list of operations is "
-        "in Edit/Plugins/TRex\n");
-    arg = ARG_INFER_CURRENT;
+    ops_chooser_t ch;
+    ssize_t n = ch.choose();
+    if ( n >= 0 && n < (ssize_t)kTrexOps.size() )
+      return trexida_run(kTrexOps[n].arg);
+    return true;
   }
 
   return trexida_run(arg);

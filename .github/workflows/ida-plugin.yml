@@ -154,7 +154,8 @@ jobs:
             -DCMAKE_CXX_COMPILER=cl `
             -DCMAKE_BUILD_TYPE=Release `
             -DIDA_SDK_DIR="$env:SDK_DIR" `
-            -DIDA_INSTALL_DIR="" 2>&1
+            -DIDA_INSTALL_DIR="" `
+            -DTREX_QT_UI=OFF 2>&1
           if ($LASTEXITCODE -ne 0) { throw "cmake configure failed ($LASTEXITCODE)" }
 
       - name: Build (Release)
