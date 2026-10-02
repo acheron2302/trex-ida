@@ -72,7 +72,7 @@ unit tests and the differential gate possible outside IDA.
 |---|---|
 | OS / arch | Windows x64 (MSVC ABI, `lib/x64_win_64` — `lib/x64_win_vc_64` in older SDK tags, `__EA64__`). |
 | IDA | IDA Pro 9.x **with the decompiler** — without it the plugin refuses to load (`PLUGIN_SKIP`). Developed and verified against 9.4. |
-| IDA SDK | A checkout of the public [HexRaysSA/ida-sdk](https://github.com/HexRaysSA/ida-sdk); the plugin builds from `v9.2` upward. Point `IDASDK` at it (the build reads `${IDASDK}/src`). |
+| IDA SDK | A checkout of the public [HexRaysSA/ida-sdk](https://github.com/HexRaysSA/ida-sdk); the plugin builds from `v9.2` upward. Point `IDASDK` at it (the build reads `${IDASDK}/src`). **The SDK must be the tag matching the IDA you run** — the decompiler handshake (`init_hexrays_plugin()`) compares a compile-time `HEXRAYS_API_MAGIC` against the running IDA, so a mismatched pair loads nothing and reports `no decompiler available` even with a valid license and the decompiler present. |
 | Compiler | Visual Studio 2022 (MSVC) or Intel oneAPI DPC++/C++ (`icx-cl`, MSVC-compatible driver). |
 | Build tools | CMake ≥ 3.25, Ninja. |
 | Tests | Python 3 (stdlib only) and an installed IDA (`IDADIR`) for the end-to-end stages. |
@@ -85,11 +85,12 @@ by throwing, see `include/trex/error.hpp`) and the static CRT
 
 ## Build
 
-The SDK is located via the `IDASDK` environment variable (the SDK root, e.g. `E:\dev\ida-sdk-9.3`,
-parent of `src/`). Set `IDADIR` to deploy the built DLL into IDA's `plugins/` directory.
+The SDK is located via the `IDASDK` environment variable (the SDK root, e.g.
+`E:\dev\ida-sdk-9.4\ida-sdk-9.4.0-sdk.1`, or the `src/` directory inside it — either is accepted).
+Set `IDADIR` to deploy the built DLL into IDA's `plugins/` directory.
 
 ```bat
-set IDASDK=E:\dev\ida-sdk-9.3
+set IDASDK=E:\dev\ida-sdk-9.4\ida-sdk-9.4.0-sdk.1
 set IDADIR=E:\ida pro 9.4
 
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -100,8 +101,11 @@ The CMake script auto-resolves the SDK root to its `src/` directory. To point CM
 that does not follow the convention above, pass `-DIDA_SDK_DIR=<root>` (auto-appends `/src`) or
 `-DIDA_SDK_SRC_DIR=<src>` (used verbatim). Omit `IDADIR` to build without deploying.
 
-`scripts\build-*.bat` are thin wrappers around the same configure+build with the developer's paths
-baked in:
+`scripts\build-*.bat` are thin wrappers around the same configure+build. They carry **no
+machine-specific paths**: they read `IDASDK`/`IDADIR` from the environment via the shared
+`scripts\buildenv.bat`, print the SDK they resolved, and stop with an explanation instead of
+configuring against a stale CMake cache. `build-icx.bat` and `build-dbg.bat` additionally call
+oneAPI's `setvars.bat`; set `IDEVARS` if it is not at `D:\Intel\oneAPI\setvars.bat`.
 
 | Script | Purpose |
 |---|---|
@@ -140,6 +144,19 @@ Replacing the DLL needs a fresh IDA process: the loaded image stays mapped until
 exits (which is also why the post-build deploy fails while IDA holds the plugin, see
 [Build](#build)).
 
+### `no decompiler available`
+
+The plugin calls `init_hexrays_plugin()`, which broadcasts a magic number and expects the installed
+decompiler to answer with it. Two failures look identical in older builds, so the plugin now names
+the cause in the output window:
+
+* `no Hex-Rays decompiler plugin is installed … a license is required` — `hexx64.dll`/`hexarm.dll`/…
+  is missing from the plugins directory, or no license is present. Install the decompiler.
+* `IDA 9.4 is running a decompiler, but this build speaks hexrays magic 0xDEC0DE00000004 …` — the
+  decompiler is fine; the DLL was compiled against a *different* ida-sdk tag than the IDA you run
+  (the magic changes between SDK releases, e.g. `…04` is the 9.3 SDK and `…05` the 9.4 SDK).
+  Rebuild against the matching tag: IDA 9.4 → `v9.4.0-sdk.1`.
+
 ## Use
 Everything lives in the **Edit/Plugins/TRex** submenu. The same operations are reachable from
 IDAPython as `ida_idaapi.load_and_run_plugin("trexida", <arg>)`, which is how the headless tests
@@ -170,8 +187,21 @@ mode `run(0)` keeps the diagnostics-probe meaning (no chooser is available headl
 |---|---|
 | `TREXIDA_OUTPUT_DIR` | Directory for the `.trex.*` outputs **and** the headless switch: no wait box, no dialogs, and the C-like result is not echoed to the message window. Used by all end-to-end tests. |
 | `TREXIDA_INTERPROC` | `0` starts IDA with inter-procedural propagation off. |
-| `TREXIDA_PROBE_EA` | Address (any radix, e.g. `0x140001000`) of the function the diagnostics probe analyses; otherwise the cursor, otherwise the first function. |
+| `TREXIDA_PROBE_EA` | Address (any radix, e.g. `0x140001000`) of the function to work on; otherwise the function under the cursor, otherwise — when there is no cursor, i.e. headless — the entry point, otherwise the first function. |
 | `TREXIDA_OP` | Not read by the plugin: the test driver `tests/e2e/drive.py` reads it as a comma-separated list of `run()` arguments to execute in one session (e.g. `2,4` = reconstruct everything, then apply). |
+
+### Scope and the call-tree walk
+
+"Current function" resolves to `TREXIDA_PROBE_EA`, else the function under the cursor, else — with
+no cursor, i.e. headless — the entry point, else the first function. The entry point matters: without
+a cursor the old fallback picked whatever function the IDP created first, which on a typical binary
+is a CRT leaf with no callees, so a call-tree walk reported a one-function tree.
+
+The walk follows a code reference only when it resolves to the *entry* of a different function, so it
+descends through **tail calls** as well as ordinary calls. This is not a micro-optimisation: the CRT
+reaches `main` by tail-jumping (`start` ends with a `jmp` to `__scrt_common_main_seh`), so a walk
+that only accepted `call` instructions stopped two functions short and never saw `main`. A `jmp`
+into the function's own body is a loop or a switch and is correctly ignored.
 
 ### Outputs
 

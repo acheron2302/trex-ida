@@ -122,8 +122,32 @@ struct msg_printer_t : public vd_printer_t
   }
 };
 
-/// The function to probe: $TREXIDA_PROBE_EA if set, else the cursor, else the first function.
-func_t *probe_target()
+/// Does the code reference at `ea` name a function outside `fn` that the call-graph walk should
+/// descend into?
+///
+/// A `call` targets the callee's entry, and so does a *tail call* -- a `jmp` to another function's
+/// entry, which is how a compiler ends a function and how the CRT hands control to the next stage
+/// (`start` tail-jumps to `__scrt_common_main_seh`, which is in turn how `main` is reached). An
+/// `is_call_insn` test misses every tail call and truncates the walk to the root's direct calls.
+///
+/// The reference itself is a better discriminator than the mnemonic: a callee's entry resolves to a
+/// function that *starts* there and is not `fn`, whereas a loop back-edge or a switch case resolves
+/// to an interior address of `fn` and is rejected. That also keeps the walk working on IDPs whose
+/// mnemonics we would otherwise have to enumerate.
+bool transfers_to_other_function(ea_t ea, const func_t *fn)
+{
+  for ( ea_t ref = get_first_fcref_from(ea); ref != BADADDR; ref = get_next_fcref_from(ea, ref) )
+  {
+    const func_t *callee = get_func(ref);
+    if ( callee != nullptr && callee->start_ea == ref && callee->start_ea != fn->start_ea )
+      return true;
+  }
+  return false;
+}
+
+/// The function the user is working on: $TREXIDA_PROBE_EA if set, else the function under the
+/// cursor, else -- when there is no cursor -- the entry point, else the first function.
+func_t *current_function()
 {
   func_t *target = nullptr;
 
@@ -133,6 +157,14 @@ func_t *probe_target()
 
   if ( target == nullptr )
     target = get_func(get_screen_ea());
+
+  // Headless IDA (`idat -A`) has no cursor, so get_screen_ea() is BADADDR and the lookup above
+  // finds nothing. Falling back to "the first function in the database" picks whatever the IDP
+  // happened to create first -- typically a CRT leaf with no callees -- which makes a call-tree
+  // walk report a one-function tree. The entry point is the root every program's call graph
+  // hangs from, so prefer it and keep the positional scan only as a last resort.
+  if ( target == nullptr )
+    target = get_func(inf_get_start_ea());
 
   if ( target == nullptr )
   {
@@ -190,7 +222,7 @@ void run_probe()
   const char *hxver = get_hexrays_version();
   msg("[trexida] decompiler: %s\n", hxver != nullptr ? hxver : "<unavailable>");
 
-  func_t *pfn = probe_target();
+  func_t *pfn = current_function();
   if ( pfn == nullptr )
   {
     msg("[trexida] no function available to probe\n");
@@ -242,19 +274,7 @@ void run_probe()
 std::vector<func_t *> current_scope_functions()
 {
   std::vector<func_t *> out;
-  func_t *pfn = get_func(get_screen_ea());
-  if ( pfn == nullptr )
-  {
-    for ( size_t i = 0, n = get_func_qty(); i < n; ++i )
-    {
-      func_t *f = getn_func(i);
-      if ( f != nullptr && f->size() > 0 )
-      {
-        pfn = f;
-        break;
-      }
-    }
-  }
+  func_t *pfn = current_function();
   if ( pfn != nullptr )
     out.push_back(pfn);
 
@@ -270,11 +290,10 @@ std::vector<func_t *> current_scope_functions()
     func_item_iterator_t it(out[i]);
     for ( bool ok = it.first(); ok && out.size() < kMaxScopeFunctions; ok = it.next_head() )
     {
-      insn_t insn;
-      const ea_t ea = it.current();
-      if ( decode_insn(&insn, ea) <= 0 || !is_call_insn(insn) )
+      if ( !transfers_to_other_function(it.current(), out[i]) )
         continue;
-      for ( ea_t ref = get_first_fcref_from(ea); ref != BADADDR; ref = get_next_fcref_from(ea, ref) )
+      for ( ea_t ref = get_first_fcref_from(it.current()); ref != BADADDR;
+            ref = get_next_fcref_from(it.current(), ref) )
       {
         func_t *callee = get_func(ref);
         if ( callee != nullptr && callee->size() > 0 && seen.insert(callee->start_ea).second )
@@ -307,11 +326,10 @@ std::vector<func_t *> deep_scope_functions(func_t *root)
     func_item_iterator_t it(out[i]);
     for ( bool ok = it.first(); ok; ok = it.next_head() )
     {
-      insn_t insn;
-      const ea_t ea = it.current();
-      if ( decode_insn(&insn, ea) <= 0 || !is_call_insn(insn) )
+      if ( !transfers_to_other_function(it.current(), out[i]) )
         continue;
-      for ( ea_t ref = get_first_fcref_from(ea); ref != BADADDR; ref = get_next_fcref_from(ea, ref) )
+      for ( ea_t ref = get_first_fcref_from(it.current()); ref != BADADDR;
+            ref = get_next_fcref_from(it.current(), ref) )
       {
         if (out.size() >= kMaxDeepScopeFunctions)
         {
@@ -1563,7 +1581,7 @@ bool idaapi trexida_run(size_t arg)
         return true;
       case ARG_INFER_CURRENT_DEEP:
       {
-        func_t *root = probe_target();
+        func_t *root = current_function();
         if ( root == nullptr )
         {
           msg("[trexida] no function in scope\n");
@@ -1632,13 +1650,57 @@ bool idaapi trexida_run(size_t arg)
   }
 }
 
+/// The decompiler handshake is `init_hexrays_plugin()` (a ::ui_broadcast carrying the compile-time
+/// HEXRAYS_API_MAGIC), so a failure has two very different causes: the decompiler is not installed
+/// at all, or the running IDA speaks a different magic than the SDK we were compiled against.
+/// A bare "no decompiler" sends people hunting for a license that is actually fine, so ask IDA
+/// whether a decompiler plugin is present before blaming the build.
+static bool decompiler_available(qstring &diagnosis)
+{
+  if ( init_hexrays_plugin() )
+    return true;
+
+  // Decompiler plugins are named "hex<arch>" (hexx64, hexarm, ...) and ship with the decompiler,
+  // not with IDA itself; without a license none of them load. get_plugins() is a linked list.
+  bool any_decompiler = false;
+  for ( const plugin_info_t *pi = get_plugins(); pi != nullptr; pi = pi->next )
+  {
+    const char *path = pi->path != nullptr ? pi->path : "";
+    const char *base = strrchr(path, '\\');
+    base = base != nullptr ? base + 1 : path;
+    if ( strncmp(base, "hex", 3) == 0 )
+    {
+      any_decompiler = true;
+      break;
+    }
+  }
+
+  if ( !any_decompiler )
+  {
+    diagnosis = "no Hex-Rays decompiler plugin is installed (expected one of hexx64/hexarm/... "
+                "in the plugins directory) and a license is required";
+    return false;
+  }
+
+  // The decompiler is loaded and ours still failed: the magic must differ, i.e. this build does
+  // not match the running IDA. Report both sides so the rebuild is a no-brainer.
+  char kernel[64] = { 0 };
+  get_kernel_version(kernel, sizeof(kernel));
+  diagnosis.sprnt("IDA %s is running a decompiler, but this build speaks hexrays magic 0x%llX and "
+                  "the installed one answers with a different magic -- the plugin must be rebuilt "
+                  "against the ida-sdk tag matching IDA %s",
+                  kernel, (unsigned long long)HEXRAYS_API_MAGIC, kernel);
+  return false;
+}
+
 static plugmod_t *idaapi init()
 {
   g_interproc = interproc_enabled_by_env();
 
-  if ( !init_hexrays_plugin() )
+  qstring diagnosis;
+  if ( !decompiler_available(diagnosis) )
   {
-    msg("[trexida] no decompiler available; plugin not loaded\n");
+    msg("[trexida] no decompiler available; plugin not loaded: %s\n", diagnosis.c_str());
     return PLUGIN_SKIP;
   }
 

@@ -37,6 +37,10 @@ def run_ida(out_dir):
     env = dict(os.environ)
     env["TREXIDA_OUTPUT_DIR"] = out_dir
     env["TREXIDA_OP"] = "6"  # ARG_LIFT
+    # Pin the root to get_last (the first function in the fixture, and the one the golden files
+    # were recorded from). Headless IDA has no cursor, so without this the scope would fall back to
+    # the entry point and pull in the whole CRT startup tree, which legitimately needs fallbacks.
+    env["TREXIDA_PROBE_EA"] = "0x140001000"
     subprocess.run(
         [IDAT, "-A", "-L" + log, "-S" + os.path.join(HERE, "drive.py"), FIXTURE],
         env=env,
