@@ -54,4 +54,9 @@ void show_types_window(const WindowModel &model, const WindowCallbacks &cbs);
 /// Update the window's tree + detail from a fresh model. No-op when the window is closed.
 void update_types_window(const WindowModel &model);
 
+/// Tear the window down while IDA is still alive: unhook the UI listener and release the Qt
+/// object. Must be called from the plugin's term(). No-op in a Qt-less build, where nothing was
+/// ever created.
+void release_types_window();
+
 } // namespace trex::ui

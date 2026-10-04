@@ -106,6 +106,9 @@ machine-specific paths**: they read `IDASDK`/`IDADIR` from the environment via t
 `scripts\buildenv.bat`, print the SDK they resolved, and stop with an explanation instead of
 configuring against a stale CMake cache. `build-icx.bat` and `build-dbg.bat` additionally call
 oneAPI's `setvars.bat`; set `IDEVARS` if it is not at `D:\Intel\oneAPI\setvars.bat`.
+`build-msvc.bat` additionally forwards `TREX_QT_ROOT` to `-DTREX_QT_ROOT=`, which is how the
+types window gets built; the other scripts leave it off and reuse whatever the build directory
+cached.
 
 | Script | Purpose |
 |---|---|
@@ -157,10 +160,28 @@ the cause in the output window:
   (the magic changes between SDK releases, e.g. `…04` is the 9.3 SDK and `…05` the 9.4 SDK).
   Rebuild against the matching tag: IDA 9.4 → `v9.4.0-sdk.1`.
 
+### `restore database` prompt after using the types window
+
+**Known issue, Qt build only.** If you opened the Qt types window, closing that IDA session can
+fail to finish shutting down: the database is left unpacked (`<db>.id0`/`.id1`/`.nam`/`.til`
+instead of a single `.i64`) and the next open of that database asks you to restore it. The
+database itself is intact — answer the prompt and the analysis is there — but the clean
+workaround is to close the types window before quitting IDA.
+
+Ruled out, by measurement: it is not the inference code, the window's own logic, a crashed or
+aborted process (IDA logs a clean `Flushing buffers…ok` and terminates its plugins), the Qt-less
+build, a built-in IDA window, a bare `create_empty_widget`, or the static-vs-dynamic CRT (a
+`/MD` build reproduces it identically). It happens only with the Qt build after the Qt child
+widget has been created inside IDA's empty widget. The cause is still unknown.
+
 ## Use
 Everything lives in the **Edit/Plugins/TRex** submenu. The same operations are reachable from
 IDAPython as `ida_idaapi.load_and_run_plugin("trexida", <arg>)`, which is how the headless tests
 drive them.
+
+Right-clicking inside the pseudocode view adds a **TRex** submenu to the context menu, holding
+the same eight operations; the two diagnostics rows sit one level deeper under **Diagnostics**.
+The actions are the very ones registered for the menu, so both surfaces always stay in sync.
 
 Clicking the plugin's own **Edit/Plugins** entry (or running `trexida` with no argument from a
 script that uses `load_and_run_plugin`) opens a modal **TRex operations** chooser listing every

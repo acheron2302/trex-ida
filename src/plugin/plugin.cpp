@@ -1467,6 +1467,10 @@ const std::array<trex_op_t, NUM_ACTIONS> kTrexOps = { {
   { "trexida:infer_current", "TRex: reconstruct types (current function)",
     "Reconstruct types (current function)",
     "Run TRex type reconstruction on the function under the cursor", ARG_INFER_CURRENT },
+  { "trexida:infer_current_deep", "TRex: reconstruct types (current function + call tree)",
+    "Reconstruct types (function + call tree)",
+    "Run TRex on the function under the cursor and every function it transitively calls, so types "
+    "propagate through nested calls", ARG_INFER_CURRENT_DEEP },
   { "trexida:infer_all", "TRex: reconstruct types (all functions)",
     "Reconstruct types (all functions)",
     "Run TRex type reconstruction on every function in the database", ARG_INFER_ALL },
@@ -1479,24 +1483,20 @@ const std::array<trex_op_t, NUM_ACTIONS> kTrexOps = { {
   { "trexida:export", "TRex: export last results to files",
     "Export last results to files",
     "Write the last results to <base>.trex.structural, .trex.c and .trex.vars.tsv", ARG_EXPORT },
+  { "trexida:window", "TRex: open types window",
+    "Open types window",
+    "Qt window: list of reconstructed structs, their definition, the variables of each type, plus "
+    "copy/apply/export", ARG_TYPES_WINDOW },
+  { "trexida:interproc", "TRex: toggle inter-procedural propagation",
+    "Toggle inter-procedural propagation",
+    "Join types across call sites (callee parameters and returned values) or restore per-function "
+    "inference", ARG_INTERPROC },
   { "trexida:lift", "TRex: dump IL (diagnostics)",
     "Dump IL of current function (diagnostics)",
     "Lift the current function to the TRex IL and print it", ARG_LIFT },
   { "trexida:probe", "TRex: probe microcode (diagnostics)",
     "Probe microcode (diagnostics)",
     "Print microcode maturity and lvar diagnostics for one function", ARG_PROBE },
-  { "trexida:interproc", "TRex: toggle inter-procedural propagation",
-    "Toggle inter-procedural propagation",
-    "Join types across call sites (callee parameters and returned values) or restore per-function "
-    "inference", ARG_INTERPROC },
-  { "trexida:infer_current_deep", "TRex: reconstruct types (current function + call tree)",
-    "Reconstruct types (function + call tree)",
-    "Run TRex on the function under the cursor and every function it transitively calls, so types "
-    "propagate through nested calls", ARG_INFER_CURRENT_DEEP },
-  { "trexida:window", "TRex: open types window",
-    "Open types window",
-    "Qt window: list of reconstructed structs, their definition, the variables of each type, plus "
-    "copy/apply/export", ARG_TYPES_WINDOW },
 } };
 
 /// Modal chooser shown when the user picks the plugin's own "Edit/Plugins" entry. Lists every
@@ -1545,6 +1545,33 @@ trex_action_handler_t &handler_for(size_t arg)
   return arg < NUM_ACTIONS ? handlers[arg] : handlers[ARG_PROBE];
 }
 
+/// The decompiler context menu: attach every operation under a "TRex" submenu of the pseudocode
+/// view's popup, diagnostics one level deeper (HRDevHelper's finish-populating-widget-popup
+/// pattern: attach_action_to_popup() from a UI event listener).
+struct popup_listener_t : public event_listener_t
+{
+  ssize_t idaapi on_event(ssize_t code, va_list va) override
+  {
+    if ( code != ui_finish_populating_widget_popup )
+      return 0;
+    TWidget *widget = va_arg(va, TWidget *);
+    TPopupMenu *popup = va_arg(va, TPopupMenu *);
+    if ( get_widget_type(widget) != BWN_PSEUDOCODE )
+      return 0;
+    for ( const trex_op_t &op : kTrexOps )
+    {
+      const bool diagnostics = op.arg == ARG_LIFT || op.arg == ARG_PROBE;
+      attach_action_to_popup(widget, popup, op.name, diagnostics ? "TRex/Diagnostics/" : "TRex/");
+    }
+    return 0;
+  }
+};
+
+// One listener for the plugin's lifetime. owner = nullptr because this is a classic plugin_t
+// (no plugmod_t), so the 3-argument free function is the only form available; without an owner
+// the kernel leaves removal to us and term() unhooks it.
+popup_listener_t g_popup_listener;
+
 } // namespace
 #if !TREX_HAVE_QT
 // Qt-less builds (default in CI): the types window is not compiled. The stubs keep the menu /
@@ -1558,6 +1585,7 @@ void show_types_window(const WindowModel & /*model*/, const WindowCallbacks & /*
   msg("[trexida] types window: not available in this build (built without Qt)\n");
 }
 void update_types_window(const WindowModel & /*model*/) {}
+void release_types_window() {}
 } // namespace trex::ui
 #endif
 
@@ -1736,6 +1764,9 @@ static plugmod_t *idaapi init()
     }
   }
 
+  if ( registered > 0 )
+    hook_event_listener(HT_UI, &g_popup_listener, nullptr);
+
   msg("[trexida] loaded v%s (built %s %s), decompiler %s (%d/%d actions registered, %d attached "
       "to %s)\n",
       trex::version(), __DATE__, __TIME__, get_hexrays_version(),
@@ -1745,6 +1776,8 @@ static plugmod_t *idaapi init()
 
 static void idaapi term()
 {
+  unhook_event_listener(HT_UI, &g_popup_listener);
+  trex::ui::release_types_window();
   delete_menu(kTrexMenuName);
   term_hexrays_plugin();
 }

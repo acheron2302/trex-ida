@@ -26,10 +26,23 @@
 #include <string>
 #include <vector>
 
-#include <kernwin.hpp>
-#include <ida.hpp>
-
+// Qt before the IDA headers (mirror the SDK's plugins/qwindow): the SDK's kernwin.hpp is not
+// self-contained - it uses uchar/ssize/... from ida.hpp without including it, so it only
+// compiles when ida.hpp precedes it.
+#ifdef __NT__
+#pragma warning(push)
+#pragma warning(disable:5219) // implicit conversion from 'int' to 'float', possible loss of data
+#pragma warning(disable:5240) // 'nodiscard': attribute is ignored in this syntactic position
+#endif // __NT__
 #include <QtWidgets>
+#ifdef __NT__
+#pragma warning(pop)
+#endif // __NT__
+
+#include <ida.hpp>
+#include <idp.hpp>
+#include <loader.hpp>
+#include <kernwin.hpp>
 
 // ---------------------------------------------------------------------------
 // Module state: one window instance, one widget, one event listener.
@@ -49,12 +62,18 @@ struct TrexTypesWindow : public QT::QWidget
   explicit TrexTypesWindow(QT::QWidget *parent)
     : QT::QWidget(parent)
   {
+    // IDA sizes the dock from the user, which can be narrower than this content needs: without a
+    // floor the button row gets clipped and the splitter's split sizes are meaningless.
+    setMinimumSize(780, 400);
+
     auto *root = new QT::QVBoxLayout(this);
     root->setContentsMargins(6, 6, 6, 6);
     root->setSpacing(4);
 
     // ----- button rows: rescan group | stretch | copy/apply/export group
-    auto *buttons = new QT::QHBoxLayout();
+    // Two rows so the labels stay readable when the dock is narrow; the second row is only
+    // reached on a narrow pane, which is why the first one can be clipped without losing text.
+    auto *buttons = new QT::QVBoxLayout();
     buttons->setSpacing(4);
 
     auto *rescan_deep = new QT::QPushButton(QT::QString::fromUtf8("Rescan (function + call tree)"), this);
@@ -64,13 +83,21 @@ struct TrexTypesWindow : public QT::QWidget
     auto *apply_btn   = new QT::QPushButton(QT::QString::fromUtf8("Apply to database"), this);
     auto *export_btn  = new QT::QPushButton(QT::QString::fromUtf8("Export files"), this);
 
-    buttons->addWidget(rescan_deep);
-    buttons->addWidget(rescan_all);
-    buttons->addStretch(1);
-    buttons->addWidget(copy_one);
-    buttons->addWidget(copy_all);
-    buttons->addWidget(apply_btn);
-    buttons->addWidget(export_btn);
+    auto *rescan_row = new QT::QHBoxLayout();
+    rescan_row->setSpacing(4);
+    rescan_row->addWidget(rescan_deep);
+    rescan_row->addWidget(rescan_all);
+    rescan_row->addStretch(1);
+    buttons->addLayout(rescan_row);
+
+    auto *output_row = new QT::QHBoxLayout();
+    output_row->setSpacing(4);
+    output_row->addWidget(copy_one);
+    output_row->addWidget(copy_all);
+    output_row->addWidget(apply_btn);
+    output_row->addWidget(export_btn);
+    output_row->addStretch(1);
+    buttons->addLayout(output_row);
 
     root->addLayout(buttons);
 
@@ -93,6 +120,17 @@ struct TrexTypesWindow : public QT::QWidget
     tree->setUniformRowHeights(true);
     tree->setSelectionMode(QT::QAbstractItemView::SingleSelection);
     tree->setSortingEnabled(false);
+    // Fixed widths do not survive IDA's dock: the pane can be narrower than their sum, and Qt
+    // then pushes "Members" off the right edge. Let the three narrow columns size to their
+    // content and give the leftover space to "Name", so all four headers stay visible.
+    tree->header()->setSectionResizeMode(0, QT::QHeaderView::Stretch);
+    tree->header()->setSectionResizeMode(1, QT::QHeaderView::ResizeToContents);
+    tree->header()->setSectionResizeMode(2, QT::QHeaderView::ResizeToContents);
+    tree->header()->setSectionResizeMode(3, QT::QHeaderView::ResizeToContents);
+    tree->header()->setMinimumSectionSize(44);
+    tree->header()->setStretchLastSection(false);
+    tree->setTextElideMode(QT::Qt::ElideRight);
+    tree->setHorizontalScrollBarPolicy(QT::Qt::ScrollBarAsNeeded);
 
     detail = new QT::QTextEdit(split);
     detail->setReadOnly(true);
@@ -102,7 +140,8 @@ struct TrexTypesWindow : public QT::QWidget
     split->addWidget(detail);
     split->setStretchFactor(0, 1);
     split->setStretchFactor(1, 2);
-    split->setSizes({ 280, 560 });
+    split->setChildrenCollapsible(false);
+    split->setSizes({ 360, 700 });
     root->addWidget(split, 1);
 
     // ----- signal wiring
@@ -120,46 +159,6 @@ struct TrexTypesWindow : public QT::QWidget
                          this, &TrexTypesWindow::on_rescan_deep);
     QT::QObject::connect(rescan_all, &QT::QPushButton::clicked,
                          this, &TrexTypesWindow::on_rescan_all);
-  }
-
-  // The tree stores the struct name in each QTreeWidgetItem's UserRole so selection survives a
-  // repopulate even when rows reorder.
-  void repopulate(const trex::ui::WindowModel &model)
-  {
-    // Remember the selection by name; the row index can change across rescan runs.
-    QString selected;
-    if (auto *it = tree->currentItem())
-      selected = it->data(0, QT::Qt::UserRole).toString();
-
-    tree->clear();
-
-    QT::QTreeWidgetItem *first = nullptr;
-    QT::QTreeWidgetItem *to_select = nullptr;
-    for (const trex::ui::StructInfo &s : model.structs)
-    {
-      auto *item = new QT::QTreeWidgetItem(tree);
-      item->setText(0, QT::QString::fromUtf8(s.name.c_str()));
-      item->setText(1, QT::QString::fromUtf8(s.kind.c_str()));
-      if (s.size.has_value())
-        item->setText(2, QT::QString::number(static_cast<qlonglong>(*s.size)));
-      else
-        item->setText(2, QT::QString::fromUtf8("?"));
-      item->setText(3, QT::QString::number(static_cast<qlonglong>(s.member_count)));
-      item->setData(0, QT::Qt::UserRole, QT::QString::fromUtf8(s.name.c_str()));
-      if (first == nullptr)
-        first = item;
-      if (!selected.isEmpty() && selected == item->data(0, QT::Qt::UserRole))
-        to_select = item;
-    }
-
-    if (to_select != nullptr)
-      tree->setCurrentItem(to_select);
-    else if (first != nullptr)
-      tree->setCurrentItem(first);
-    else
-      detail->clear();
-
-    update_status(model);
   }
 
   void update_status(const trex::ui::WindowModel &model)
@@ -203,7 +202,7 @@ struct TrexTypesWindow : public QT::QWidget
     else
       text += joined.toStdString();
 
-    detail->setPlainText(text);
+    detail->setPlainText(QT::QString::fromStdString(text));
     (void)name;
     (void)kind;
   }
@@ -246,9 +245,9 @@ struct TrexTypesWindow : public QT::QWidget
 
 TrexTypesWindow *g_window = nullptr; ///< owned via Qt parent (the IDA TWidget -> QWidget).
 
-// We need to recover the model across `ui_widget_visible` -> repopulate, so the freshly-built
-// QWidget gets the model and callbacks on first show. Stored here between show() and
-// ui_widget_visible.
+// We need to recover the model across `show_types_window()` -> ui_widget_visible, so the
+// freshly-built QWidget gets the model and callbacks on first show. Stored here between the
+// call and the event.
 struct Pending
 {
   trex::ui::WindowModel model;
@@ -256,13 +255,12 @@ struct Pending
 };
 Pending *g_pending = nullptr;
 
-// IDA event listener: when our empty widget becomes visible, parent our QWidget into it. When
-// it goes invisible, drop the reference (the widget itself is owned by IDA's framework).
+// IDA event listener: when our empty widget becomes visible, install the Qt UI into it. Hooked
+// once (owner = nullptr: the kernel leaves removal to us) and reused across opens; `widget`
+// always names the empty widget currently displayed.
 struct WidgetListener : public event_listener_t
 {
   TWidget *widget = nullptr;
-
-  WidgetListener(TWidget *w) : widget(w) {}
 
   ssize_t idaapi on_event(ssize_t code, va_list va) override
   {
@@ -271,10 +269,29 @@ struct WidgetListener : public event_listener_t
       TWidget *w = va_arg(va, TWidget *);
       if (w == widget && g_pending != nullptr && g_window == nullptr)
       {
-        g_window = new TrexTypesWindow(reinterpret_cast<QT::QWidget *>(widget));
+        QT::QWidget *host = reinterpret_cast<QT::QWidget *>(w);
+        g_window = new TrexTypesWindow(host);
+        // The host is IDA's empty widget; give it a layout so our widget fills it.
+        QT::QLayout *host_layout = host->layout();
+        if (host_layout == nullptr)
+          host_layout = new QT::QVBoxLayout(host);
+        host_layout->addWidget(g_window);
+        g_window->show();
         g_window->cbs = g_pending->cbs;
-        g_window->repopulate(g_pending->model);
+        trex::ui::update_types_window(g_pending->model);
+        delete g_pending;
         g_pending = nullptr;
+      }
+    }
+    else if (code == ui_widget_closing)
+    {
+      TWidget *w = va_arg(va, TWidget *);
+      if (w == widget && g_window != nullptr)
+      {
+        // Drop the Qt object before IDA destroys the widget tree it is parented into.
+        g_window->setParent(nullptr);
+        delete g_window;
+        g_window = nullptr;
       }
     }
     else if (code == ui_widget_invisible)
@@ -282,6 +299,7 @@ struct WidgetListener : public event_listener_t
       TWidget *w = va_arg(va, TWidget *);
       if (w == widget)
       {
+        widget = nullptr;
         g_window = nullptr;
       }
     }
@@ -290,6 +308,49 @@ struct WidgetListener : public event_listener_t
 };
 
 WidgetListener *g_listener = nullptr;
+bool g_listener_hooked = false;
+
+/// Returns the listener, hooking it on first use. owner = nullptr because this is a classic
+/// plugin_t (no plugmod_t), so the kernel never unhooks it for us.
+WidgetListener &widget_listener()
+{
+  static WidgetListener listener;
+  if (!g_listener_hooked)
+  {
+    hook_event_listener(HT_UI, &listener, nullptr);
+    g_listener = &listener;
+    g_listener_hooked = true;
+  }
+  return listener;
+}
+
+WidgetListener *window_listener_if_hooked() { return g_listener; }
+
+/// Unhooks the window listener and releases the Qt object while IDA is still alive. Leaving the
+/// listener registered means it keeps receiving UI events during IDA's shutdown, when the widget
+/// tree it refers to is already gone. Called from the plugin's term().
+void release_window_listener()
+{
+  WidgetListener *listener = window_listener_if_hooked();
+  if (listener == nullptr)
+    return;
+
+  unhook_event_listener(HT_UI, listener);
+
+  if (g_window != nullptr)
+  {
+    // Unparent first: the host is IDA's empty widget, which IDA destroys on its own schedule.
+    // Letting the parent delete a Qt child while that happens tears the Qt widget tree down
+    // twice.
+    g_window->setParent(nullptr);
+    delete g_window;
+    g_window = nullptr;
+  }
+  delete g_pending;
+  g_pending = nullptr;
+  g_listener = nullptr;
+  g_listener_hooked = false;
+}
 
 } // namespace
 
@@ -305,12 +366,13 @@ void show_types_window(const WindowModel &model, const WindowCallbacks &cbs)
   if (existing != nullptr)
     close_widget(existing, WCLS_SAVE);
 
-  // Local Pending on the stack would dangle the moment this function returns; the WidgetListener
+  // A Pending on the stack would dangle the moment this function returns; the WidgetListener
   // callback fires from a different event-loop cycle and dereferences g_pending. Heap-allocate.
-  auto *p = new Pending;
-  p->model = model;
-  p->cbs = cbs;
-  g_pending = p;
+  // A previous show whose widget never became visible left one behind: drop it first.
+  delete g_pending;
+  g_pending = new Pending;
+  g_pending->model = model;
+  g_pending->cbs = cbs;
 
   TWidget *w = create_empty_widget(kWidgetCaption);
   if (w == nullptr)
@@ -320,10 +382,9 @@ void show_types_window(const WindowModel &model, const WindowCallbacks &cbs)
     msg("[trexida] could not create types window\n");
     return;
   }
-  display_widget(w, WOPN_DP_TAB | WOPN_RESTORE);
 
-  g_listener = new WidgetListener(w);
-  hook_event_listener(HT_UI, g_listener);
+  widget_listener().widget = w;   // hooks the listener on first use
+  display_widget(w, WOPN_DP_TAB | WOPN_RESTORE);
   // The listener will install the QWidget when ui_widget_visible fires.
 }
 
@@ -384,6 +445,11 @@ void update_types_window(const WindowModel &model)
     g_window->detail->clear();
 
   g_window->update_status(model);
+}
+
+void release_types_window()
+{
+  release_window_listener();
 }
 
 } // namespace trex::ui

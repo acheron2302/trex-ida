@@ -7,9 +7,13 @@ call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build
 call "%~dp0buildenv.bat" || exit /b 1
 echo trexida: SDK    = %IDASDK_SRC%
 echo trexida: IDADIR = %IDADIR%
+rem Optional Qt for the types window: a QT_NAMESPACE=QT build matching the target IDA
+rem (IDA 9.4 -> Qt 6.8.2). When unset the flag is omitted and the cached value is kept.
+set "TREX_QT_ARGS="
+if defined TREX_QT_ROOT set TREX_QT_ARGS=-DTREX_QT_ROOT="%TREX_QT_ROOT%"
 cmake -S "%~dp0.." -B "%~dp0..\build-msvc" -G Ninja ^
   -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DCMAKE_BUILD_TYPE=Release ^
   -DIDA_SDK_DIR="%IDASDK_SRC%" -DIDA_SDK_SRC_DIR="%IDASDK_SRC%" ^
-  -DIDA_INSTALL_DIR="%IDADIR%" || exit /b 1
+  -DIDA_INSTALL_DIR="%IDADIR%" %TREX_QT_ARGS% || exit /b 1
 cmake --build "%~dp0..\build-msvc" || exit /b 1
 endlocal
