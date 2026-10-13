@@ -229,6 +229,23 @@ std::string PrintableCTypes<ExtVar>::ext_type_name_at(Index idx) const
 }
 
 template <class ExtVar>
+const CType *PrintableCTypes<ExtVar>::ctype_at(const std::string &name) const
+{
+  return ctypes_.get(name);
+}
+
+template <class ExtVar>
+const std::map<std::string, const CType *> &PrintableCTypes<ExtVar>::named_ctypes() const
+{
+  if ( named_ctypes_cache_.empty() && !ctypes_.iter().empty() )
+  {
+    for ( const auto &kv : ctypes_.iter() )
+      named_ctypes_cache_.emplace(kv.first, &kv.second);
+  }
+  return named_ctypes_cache_;
+}
+
+template <class ExtVar>
 std::string PrintableCTypes<ExtVar>::new_type_name()
 {
   ++next_name_counter_;

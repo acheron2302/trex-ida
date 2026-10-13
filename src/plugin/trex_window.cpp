@@ -418,7 +418,8 @@ void update_types_window(const WindowModel &model)
       item->setText(2, QT::QString::fromUtf8("?"));
     item->setText(3, QT::QString::number(static_cast<qlonglong>(s.member_count)));
     item->setData(0, QT::Qt::UserRole, QT::QString::fromUtf8(s.name.c_str()));
-    item->setData(0, QT::Qt::UserRole + 1, QT::QString::fromUtf8(s.declaration.c_str()));
+    item->setData(0, QT::Qt::UserRole + 1,
+                  QT::QString::fromStdString(trex::ui::render_declaration(s)));
 
     QString joined;
     auto it = uses_by_type.find(s.name);

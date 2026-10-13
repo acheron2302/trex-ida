@@ -103,6 +103,13 @@ if(TREX_BUILD_TESTS AND TREX_REF_SOURCES)
   if(TREX_TEST_SOURCES)
     add_executable(trex_unit_tests ${TREX_TEST_SOURCES})
     target_include_directories(trex_unit_tests PRIVATE "${CMAKE_SOURCE_DIR}/tests")
+    # The type planner and the window's aggregate renderer are IDA-free and Qt-free, so their
+    # decisions (offsets, extents, gaps, rendered C) are unit-testable without a database. Only
+    # those two plugin sources are pulled in; the rest of src/plugin needs the IDA SDK.
+    target_sources(trex_unit_tests PRIVATE
+      "${CMAKE_SOURCE_DIR}/src/plugin/type_plan.cpp"
+      "${CMAKE_SOURCE_DIR}/src/plugin/trex_window_render.cpp")
+    target_include_directories(trex_unit_tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
     target_compile_definitions(trex_unit_tests PRIVATE TREX_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/tests/fixtures/lifted")
     target_link_libraries(trex_unit_tests PRIVATE trex_ref_frontend)
     if(TARGET trex_interproc)

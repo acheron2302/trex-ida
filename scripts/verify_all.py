@@ -7,7 +7,8 @@ Stages (each is also runnable on its own):
   4. IDA frontend lift regression (golden files)  -> tests/e2e/test_lift.py
   5. end-to-end in IDA on the fixture binary      -> tests/e2e/run.py
   6. write-back into the database                 -> tests/e2e/test_apply.py
-  7. inter-procedural type propagation            -> tests/e2e/test_interproc.py
+  7. native local types in the type library       -> tests/e2e/test_local_types.py
+  8. inter-procedural type propagation            -> tests/e2e/test_interproc.py
 
     python scripts/verify_all.py [--skip-build]
 """
@@ -53,6 +54,8 @@ def main():
                                       [sys.executable, os.path.join(REPO, "tests", "e2e", "run.py")])))
     results.append(("write-back", run("write-back",
                                       [sys.executable, os.path.join(REPO, "tests", "e2e", "test_apply.py")])))
+    results.append(("native local types", run("native local types",
+                                              [sys.executable, os.path.join(REPO, "tests", "e2e", "test_local_types.py")])))
     results.append(("inter-procedural", run("inter-procedural",
                                             [sys.executable, os.path.join(REPO, "tests", "e2e", "test_interproc.py")])))
 

@@ -13,11 +13,20 @@
 namespace trex::ui
 {
 
+struct MemberRow
+{
+  std::string type;     ///< as printed by the TRex C printer
+  std::string name;     ///< `field_12` / `alt_2` / `gap_field_8`
+  std::size_t offset = 0; ///< BYTES
+  std::size_t extent = 0; ///< BYTES the member occupies
+  bool is_gap = false;  ///< bytes the analysis could not type (a gap member)
+};
+
 struct StructInfo
 {
   std::string kind;          ///< "struct" or "union"
   std::string name;          ///< `tN`
-  std::string declaration;   ///< the full C-like declaration, ready to paste
+  std::vector<MemberRow> members; ///< ascending offset; every union member at 0
   std::optional<std::size_t> size; ///< byte size from the structural pass; absent if unknown
   std::size_t member_count = 0;
 };
@@ -53,6 +62,12 @@ void show_types_window(const WindowModel &model, const WindowCallbacks &cbs);
 
 /// Update the window's tree + detail from a fresh model. No-op when the window is closed.
 void update_types_window(const WindowModel &model);
+
+/// Render one aggregate as printable C: `struct tN {` / `  <type> <name>;` per member / `};`.
+/// Gap members render as `unsigned char gap_<name>[<extent>];`, so the clipboard output stays
+/// pasteable into a C compiler. Defined next to the model that feeds it, so both build flavours
+/// compile it and only the Qt one displays it.
+std::string render_declaration(const StructInfo &s);
 
 /// Tear the window down while IDA is still alive: unhook the UI listener and release the Qt
 /// object. Must be called from the plugin's term(). No-op in a Qt-less build, where nothing was

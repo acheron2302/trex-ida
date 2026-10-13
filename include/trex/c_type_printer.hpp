@@ -61,6 +61,15 @@ public:
   /// Get the external type name for an index (the public read-only view).
   std::string ext_type_name_at(Index idx) const;
 
+  /// The CType stored under `name`, or nullptr when the printer never stored one (a builtin
+  /// spelling such as `uint32_t`, `code`, `padding[N]`, or a pointer spelling such as `t1*`).
+  /// Valid for the lifetime of this printer.
+  const CType *ctype_at(const std::string &name) const;
+
+  /// Every stored CType, keyed by name. Iteration order is `std::map` order over names and is
+  /// NOT an output ordering.
+  const std::map<std::string, const CType *> &named_ctypes() const;
+
   /// The printed C-like output as a single string. This is the upstream `Display`
   /// impl; callers (the plugin chooser, the e2e test, the CLI) read the whole blob.
   std::string to_string() const;
@@ -93,6 +102,11 @@ private:
   const Container<StructuralType> *structural_types_ = nullptr;
   IndexMap<unordered::UnorderedSet<RoundedIdx>> rounded_types_;
   size_t next_name_counter_ = 0;
+
+  /// Lazily-built index over `ctypes_` (see `named_ctypes`). Safe to cache: `ctypes_` is written
+  /// only from `external_type_name_at`, which is private and reachable from the constructor and
+  /// from itself alone — never after the construction walk finishes.
+  mutable std::map<std::string, const CType *> named_ctypes_cache_;
 };
 
 /// Free-function factory mirroring upstream `PrintableCTypes::new`.

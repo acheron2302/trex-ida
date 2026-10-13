@@ -14,10 +14,10 @@
 #include <chrono>
 #include <cstdlib>
 #include <map>
-#include <regex>
 #include <fstream>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 #include <algorithm>
@@ -36,7 +36,8 @@
 #include "ida_lift.hpp"
 #include "trex_window.hpp"
 
-#include "decl_blocks.hpp"
+#include "ida_types.hpp"
+#include "type_plan.hpp"
 
 
 // The inference core (structural + aggregate analysis + output) is gated while it is being
@@ -500,8 +501,6 @@ void run_lift(const std::vector<func_t *> &functions, bool print_il)
 #if TREX_HAVE_INFERENCE
 
 /// Everything the last run produced, kept for the show/export/apply actions.
-std::string declarations_only(const std::string &c_like_text);
-
 struct LastRun
 {
   bool valid = false;
@@ -523,40 +522,49 @@ LastRun &last_run()
   return run;
 }
 
-/// Build a `trex::ui::WindowModel` from the last inference. Aggregates are taken straight from
-/// the printer's C-like text; the variable-uses list joins each variable's type name with the
-/// function/ea it lives in (same shape `run_apply()` parses).
+/// Build a `trex::ui::WindowModel` from the last inference. Aggregates come from the same plan
+/// `run_apply()` installs, so the window and the database can never disagree about an offset or a
+/// member's width. The variable-uses list joins each variable's type name with the function/ea it
+/// lives in (same shape `run_apply()` parses).
 trex::ui::WindowModel build_window_model(const LastRun &run)
 {
   trex::ui::WindowModel m;
   if ( !run.valid || !run.types.has_value() )
     return m;
 
-  const std::string decls = declarations_only(run.c_like_text);
-  std::vector<trex::decl::Block> blocks = trex::decl::parse_decl_blocks(decls);
-  const std::map<std::string, std::size_t> sizes = trex::decl::compute_block_sizes(blocks);
+  trex::PrintableCTypes<trex::ExternalVariable> printer(*run.types);
+  const size_t pointer_size = run.structured_types && run.structured_types->ssa
+                                ? run.structured_types->ssa->program->pointer_size
+                                : 8;
+  const trexida::plan::TypePlan plan = trexida::plan::build_plan(*run.types, printer, pointer_size);
 
-  for ( const trex::decl::Block &b : blocks )
+  for ( const trexida::plan::PlannedAggregate &a : plan.aggregates )
   {
     trex::ui::StructInfo si;
-    si.kind = b.kind;
-    si.name = b.name;
-    si.declaration = trex::decl::block_text(b);
-    auto it = sizes.find(b.name);
-    if ( it != sizes.end() )
-      si.size = it->second;
-    si.member_count = b.members.size();
+    si.kind = a.is_union ? "union" : "struct";
+    si.name = a.name;
+    for ( const trexida::plan::PlannedMember &pm : a.members )
+    {
+      trex::ui::MemberRow row;
+      row.type = pm.type_spelling;
+      row.name = pm.name;
+      row.offset = pm.offset;
+      row.extent = pm.extent;
+      row.is_gap = pm.is_gap;
+      si.members.push_back(std::move(row));
+    }
+    si.member_count = si.members.size();
+    if ( a.size_known )
+      si.size = a.size;
     m.structs.push_back(std::move(si));
   }
 
-  trex::PrintableCTypes<trex::ExternalVariable> printer(*run.types);
-  for ( const auto &entry : run.types->var_type_iter() )
+  for ( const trexida::plan::PlannedVariable &pv : plan.variable_types )
   {
-    const std::string &var_name = entry.first.name;
     trex::ui::VarUse vu;
-    vu.type_name = printer.ext_type_name_at(entry.second);
+    vu.type_name = pv.spelling;
 
-    // var_name is `<lvar>@<func>@<ea-hex>` (the shape run_apply() parses).
+    const std::string &var_name = pv.name;
     size_t at1 = var_name.find('@');
     if ( at1 == std::string::npos )
       continue;
@@ -570,7 +578,6 @@ trex::ui::WindowModel build_window_model(const LastRun &run)
   }
   return m;
 }
-
 
 std::string hex8(ea_t ea)
 {
@@ -881,346 +888,6 @@ void run_inference(const std::vector<func_t *> &functions)
   trex::ui::update_types_window(build_window_model(run));
 }
 
-
-/// Fixed-width typedefs the printer emits; IDA's local TIL is not guaranteed to have them.
-const char *kTypePreamble =
-  "typedef signed char int8_t;\n"
-  "typedef unsigned char uint8_t;\n"
-  "typedef short int16_t;\n"
-  "typedef unsigned short uint16_t;\n"
-  "typedef int int32_t;\n"
-  "typedef unsigned int uint32_t;\n"
-  "typedef long long int64_t;\n"
-  "typedef unsigned long long uint64_t;\n"
-  "typedef __int128 int128_t;\n"
-  "typedef unsigned __int128 uint128_t;\n"
-  // TRex's names for pieces of data it has no information about: `undefinedN` is an N-byte blob,
-  // `padding` a byte of struct padding. IDA's C parser does not know them (Ghidra's names), so
-  // without these aliases *every* aggregate containing one failed to parse — which silently
-  // dropped all variables whose type was such an aggregate (observed: 20 failed declarations and
-  // 3,966 skipped variables on a 507-function binary). Widths match `BuiltIn::UndefinedN`.
-  // (`undefined` itself is a built-in IDA type and must not be redefined.)
-  "typedef unsigned char undefined1;\n"
-  "typedef unsigned short undefined2;\n"
-  "typedef unsigned int undefined4;\n"
-  "typedef unsigned long long undefined8;\n"
-  "typedef unsigned char padding;\n";
-
-/// Strip the `// var : type` comment lines the printer emits, leaving plain C declarations.
-std::string declarations_only(const std::string &c_like_text)
-{
-  std::string out;
-  size_t i = 0;
-  while ( i < c_like_text.size() )
-  {
-    size_t j = c_like_text.find('\n', i);
-    if ( j == std::string::npos )
-      j = c_like_text.size();
-    std::string line = c_like_text.substr(i, j - i);
-    i = j + 1;
-
-    size_t a = 0;
-    while ( a < line.size() && (line[a] == ' ' || line[a] == '\t') )
-      ++a;
-    if ( a + 1 < line.size() && line[a] == '/' && line[a + 1] == '/' )
-      continue; // comment line
-    out += line;
-    out += "\n";
-  }
-  return out;
-}
-
-/// Collects the messages `parse_decls` emits; they name the declaration that failed, which makes
-/// a write-back failure on a real database actionable instead of only a count.
-std::vector<std::string> &parse_messages()
-{
-  static std::vector<std::string> messages;
-  return messages;
-}
-
-int trex_parse_printer(const char *format, ...)
-{
-  va_list va;
-  va_start(va, format);
-  qstring s;
-  s.vsprnt(format, va);
-  va_end(va);
-  if ( parse_messages().size() < 8 )
-    parse_messages().push_back(s.c_str());
-  return (int)s.length();
-}
-
-std::string width_suffix(size_t width)
-{
-  if ( width == 1 )
-    return "";
-  return "[" + std::to_string(width) + "]";
-}
-
-
-/// Everything the write-back needs to know about the printer's declaration text, in front of the
-/// two places that consume it (`parse_decls` and the message window).
-///
-/// The printer emits *Ghidra-flavoured* C: aggregate members can be `void`, `T[]` (unsized arrays)
-/// or a type name that is referenced but never defined, none of which IDA's parser accepts — each
-/// such declaration made every variable of that aggregate untypable. Where the structural type
-/// says how many bytes a member occupies, the member is replaced by an explicit padding blob
-/// ("gap") of exactly that size, which keeps the aggregate's layout intact and lets it parse.
-struct PreparedDeclarations
-{
-  std::string text;         ///< preamble + typedefs + repaired, dependency-ordered aggregates
-  int normalized_members = 0;  ///< `T[]*` rewritten to `T*` (layout-preserving)
-  int gap_members = 0;         ///< members replaced by an exact-size padding blob
-  int dropped_members = 0;     ///< members dropped because even their size is unknown
-  std::map<std::string, size_t> sizes;  ///< aggregate name -> size, as computed for the layout
-};
-
-
-
-/// Size of a printed type, when it is statically known from the text plus the aggregate sizes
-/// computed so far. `char`/`unsigned char`/`undefinedN`/fixed-width typedefs and pointers cover
-/// everything the printer emits for placeable fields.
-std::optional<size_t> printed_type_size(const std::string &type,
-                                        const std::map<std::string, size_t> &aggregate_sizes)
-{
-  static const std::map<std::string, size_t> scalars = {
-    { "char", 1 },            { "signed char", 1 },     { "unsigned char", 1 },
-    { "undefined", 1 },       { "undefined1", 1 },      { "padding", 1 },      { "int8_t", 1 },
-    { "uint8_t", 1 },         { "short", 2 },           { "unsigned short", 2 },
-    { "undefined2", 2 },      { "int16_t", 2 },         { "uint16_t", 2 },
-    { "int", 4 },             { "unsigned int", 4 },    { "undefined4", 4 },
-    { "int32_t", 4 },         { "uint32_t", 4 },        { "long", 4 },         { "unsigned long", 4 },
-    { "long long", 8 },       { "unsigned long long", 8 }, { "undefined8", 8 },
-    { "int64_t", 8 },         { "uint64_t", 8 },        { "__int64", 8 },
-    { "int128_t", 16 },       { "uint128_t", 16 },      { "__int128", 16 },
-  };
-
-  if ( type.find('*') != std::string::npos )
-    return 8;  // 64-bit database
-  auto it = scalars.find(type);
-  if ( it != scalars.end() )
-    return it->second;
-  auto ag = aggregate_sizes.find(type);
-  if ( ag != aggregate_sizes.end() )
-    return ag->second;
-  return std::nullopt;
-}
-
-/// Can IDA's C parser accept this member type? False for `void`, for an unsized array used by
-/// value, for a `tN` that is never defined and for types wider than the parser knows.
-bool member_is_representable(const std::string &type, const std::set<std::string> &defined,
-                             const std::map<std::string, size_t> &aggregate_sizes)
-{
-  if ( type == "void" || type.rfind("void", 0) == 0 )
-    return type.find('*') != std::string::npos;  // `void*` is fine, `void`/`void[]` is not
-  if ( type.find("[]") != std::string::npos && type.find('*') == std::string::npos )
-    return false;  // unsized array by value
-  if ( !printed_type_size(type, aggregate_sizes).has_value() )
-    return false;
-  if ( !defined.count(type) && type.size() > 1 && type[0] == 't' && isdigit((unsigned char)type[1]) )
-    return false;  // a referenced-but-never-defined aggregate
-  return true;
-}
-
-/// TRex prints types C cannot declare for a *variable*: an incomplete array (`char[]` has no
-/// length), a pointer to one (`char[]*`), or a width IDA has no type for (`int256_t`). The
-/// variable's width is known, so the type is rewritten into something IDA can store that still
-/// describes the same number of bytes — an array of the element type when the width is divisible
-/// by it, otherwise a byte blob (a "gap"). Returns std::nullopt when nothing can be salvaged.
-/// `T[N] x;` — an array type needs the declarator *inside* the brackets (`T[N] x;` is invalid C),
-/// which is how the probe declaration for an array-typed variable has to be built.
-std::string declaration_for(const std::string &type, const char *name)
-{
-  const size_t bracket = type.rfind('[');
-  if ( bracket != std::string::npos && !type.empty() && type.back() == ']' )
-    return type.substr(0, bracket) + " " + name + type.substr(bracket);
-  return type + " " + name;
-}
-
-std::string width_suffix(size_t width);
-
-std::string representable_variable_type(const std::string &printed, size_t width,
-                                       const std::map<std::string, size_t> &sizes)
-{
-  if ( printed.empty() || width == 0 )
-    return std::string();
-
-  const size_t brackets = printed.find("[]");
-  if ( brackets == std::string::npos )
-  {
-    // A scalar IDA's parser does not know, e.g. `int256_t`.
-    if ( printed_type_size(printed, sizes).has_value() )
-      return printed;
-    return "unsigned char" + width_suffix(width);
-  }
-
-  std::string base = printed.substr(0, brackets);
-  while ( !base.empty() && base.back() == ' ' )
-    base.pop_back();
-
-  // `T[]*`: pointer to an array of T, i.e. an ordinary pointer.
-  if ( printed.find('*', brackets) != std::string::npos )
-    return base + "*";
-
-  std::optional<size_t> elem = printed_type_size(base, sizes);
-  if ( elem.has_value() && *elem != 0 && width % *elem == 0 )
-    return base + "[" + std::to_string(width / *elem) + "]";
-  return "unsigned char" + width_suffix(width);
-}
-
-/// Split the printer's text into aggregate blocks (everything else is kept verbatim), work out the
-/// aggregates' sizes, then emit the blocks in dependency order with unrepresentable members
-/// replaced by exact-size gaps.
-PreparedDeclarations prepare_declarations(const std::string &decls,
-                                          const trex::PrintableCTypes<trex::ExternalVariable> &printer,
-                                          const trex::Container<trex::StructuralType> &types)
-{
-  PreparedDeclarations out;
-
-  // Non-block lines (typedefs, the Ghidra-shaped scalar aliases, any preamble) are kept as
-  // `leftover` and re-prepended verbatim before the emitted aggregates.
-  std::string leftover;
-  {
-    const std::regex block_open("^(struct|union)[ \t]+(t[0-9]+)[ \t]*\\{[ \t]*\\r?$");
-    std::string line;
-    std::istringstream in(decls);
-    while ( std::getline(in, line) )
-    {
-      if ( !std::regex_match(line, block_open) )
-        leftover += line + "\n";
-    }
-  }
-
-  std::vector<trex::decl::Block> blocks = trex::decl::parse_decl_blocks(decls);
-  const std::map<std::string, std::size_t> sizes = trex::decl::compute_block_sizes(blocks);
-
-  std::map<std::string, const trex::decl::Block *> block_of;
-  std::set<std::string> defined;
-  for ( const trex::decl::Block &b : blocks )
-  {
-    block_of.emplace(b.name, &b);
-    defined.insert(b.name);
-  }
-
-  // ---- emit, in dependency order, replacing what IDA cannot represent
-  std::set<std::string> emitted;
-  std::function<void(const trex::decl::Block &)> emit_block = [&](const trex::decl::Block &b)
-  {
-    if ( !emitted.insert(b.name).second )
-      return;
-
-    // by-value members must be complete before this aggregate is parsed
-    for ( const trex::decl::Member &dm : b.members )
-    {
-      if ( dm.type.find('*') == std::string::npos && block_of.count(dm.type) != 0 )
-        emit_block(*block_of[dm.type]);
-    }
-
-    for ( const std::string &l : b.head )
-      out.text += l + "\n";
-
-    for ( size_t i = 0; i < b.members.size(); ++i )
-    {
-      const trex::decl::Member &dm = b.members[i];
-      const std::string indent = dm.indent.empty() ? "  " : dm.indent;
-
-      std::string type = dm.type;
-      // `T[]*` is a pointer to an array: same width as `T*`, and layout-preserving.
-      size_t brackets = type.find("[]");
-      if ( brackets != std::string::npos && type.find('*', brackets) != std::string::npos )
-      {
-        std::string base = type.substr(0, brackets);
-        std::string stars;
-        for ( size_t k = brackets + 2; k < type.size(); ++k )
-          if ( type[k] == '*' )
-            stars.push_back('*');
-        while ( !base.empty() && base.back() == ' ' )
-          base.pop_back();
-        type = base + stars;
-        ++out.normalized_members;
-      }
-
-      // A pointer stays a pointer whatever it points at: when the pointee is a name IDA's parser
-      // does not know (`code` is Ghidra's executable-code type, `int256_t` has no IDA equivalent,
-      // a `tN` may never be defined), keep the width and use `void*`.
-      size_t star = type.find('*');
-      if ( star != std::string::npos )
-      {
-        std::string base = type.substr(0, star);
-        while ( !base.empty() && base.back() == ' ' )
-          base.pop_back();
-        if ( !base.empty() && base != "void"
-          && !printed_type_size(base, sizes).has_value() )
-        {
-          type = "void" + type.substr(star);
-          ++out.normalized_members;
-        }
-      }
-
-      if ( member_is_representable(type, defined, sizes) )
-      {
-        out.text += indent + type + " " + dm.name + ";\n";
-        continue;
-      }
-
-      // Unrepresentable: keep its bytes as padding. The extent is the distance to the next
-      // member (structs) or the whole aggregate (unions, whose members all start at offset 0).
-      std::optional<size_t> extent;
-      if ( b.kind == "union" )
-      {
-        auto total = sizes.find(b.name);
-        if ( total != sizes.end() )
-          extent = total->second;
-      }
-      else
-      {
-        for ( size_t j = i + 1; j < b.members.size(); ++j )
-        {
-          if ( b.members[j].offset > dm.offset )
-          {
-            extent = b.members[j].offset - dm.offset;
-            break;
-          }
-        }
-        if ( !extent.has_value() )
-        {
-          auto total = sizes.find(b.name);
-          if ( total != sizes.end() && total->second > dm.offset )
-            extent = total->second - dm.offset;
-        }
-      }
-
-      if ( !extent.has_value() || *extent == 0 )
-      {
-        ++out.dropped_members;
-        continue;
-      }
-
-      ++out.gap_members;
-      if ( *extent == 1 )
-        out.text += indent + "unsigned char gap_" + dm.name + ";\n";
-      else
-        out.text += indent + "unsigned char gap_" + dm.name + "[" + std::to_string(*extent)
-                  + "];\n";
-    }
-
-    for ( const std::string &l : b.tail )
-      out.text += l + "\n";
-  };
-
-  for ( const trex::decl::Block &b : blocks )
-    emit_block(b);
-
-  // typedefs for every aggregate, so bare `tN` references resolve
-  std::string typedefs;
-  for ( const trex::decl::Block &b : blocks )
-    typedefs += "typedef " + b.kind + " " + b.name + " " + b.name + ";\n";
-
-  out.text = kTypePreamble + std::string("\n") + typedefs + "\n" + leftover + out.text;
-  out.sizes = sizes;
-  return out;
-}
-
 /// Install the inferred types into the database: create them in the local type library and apply
 /// them to the variables they were inferred for.
 void run_apply()
@@ -1232,58 +899,60 @@ void run_apply()
     return;
   }
 
-  std::string decls = declarations_only(run.c_like_text);
-  if ( decls.find('{') == std::string::npos && decls.find("*") == std::string::npos )
+  trex::PrintableCTypes<trex::ExternalVariable> printer(*run.types);
+  const size_t pointer_size = run.structured_types && run.structured_types->ssa
+                                ? run.structured_types->ssa->program->pointer_size
+                                : 8;
+  const trexida::plan::TypePlan plan = trexida::plan::build_plan(*run.types, printer, pointer_size);
+
+  if ( plan.aggregates.empty() && plan.variable_types.empty() )
   {
     msg("[trexida] nothing to apply: the last run produced no type definitions\n");
     return;
   }
 
-  trex::PrintableCTypes<trex::ExternalVariable> printer(*run.types);
-  const PreparedDeclarations prepared = prepare_declarations(decls, printer, run.types->types());
-  msg("[trexida] declarations: %d member(s) replaced by explicit padding, %d "
-      "pointer-to-array member(s) normalized, %d member(s) dropped (unknown size)\n",
-      prepared.gap_members, prepared.normalized_members, prepared.dropped_members);
-
-  parse_messages().clear();
-  int errors = parse_decls(get_idati(), prepared.text.c_str(), trex_parse_printer, 0);
-  msg("[trexida] type declarations parsed with %d error(s)\n", errors);
-  for ( const std::string &m : parse_messages() )
-    msg("[trexida] declaration problem: %s\n", m.c_str());
+  const trexida::ida_types::EmitStats emitted
+    = trexida::ida_types::emit_local_types(get_idati(), plan);
+  msg("[trexida] local types: %d created, %d failed, %d gap member(s), %d member(s) dropped "
+      "(unknown extent)\n",
+      (int)emitted.created_types,
+      (int)emitted.failed_types,
+      (int)emitted.gap_members,
+      (int)emitted.dropped_members + (int)emitted.normalized_alternatives);
+  for ( const std::string &f : emitted.failures )
+    msg("[trexida] type problem: %s\n", f.c_str());
 
   // Widths (and IDA's own type) per variable, from the report of the run being applied.
   std::map<std::pair<ea_t, std::string>, const trex::ida::VariableRow *> row_of;
   for ( const trex::ida::VariableRow &row : run.rows )
     row_of.emplace(std::make_pair(row.func_ea, row.lvar_name), &row);
 
+  // Every variable the inference produced, in the order the planner lists them.
   int applied = 0;
   int skipped = 0;
   int no_type_info = 0;
-  int gaps = 0;
-  int unparsable = 0;
+  int unresolvable = 0;
   int unresolved = 0;
   int modify_failed = 0;
   int malformed_name = 0;
   int unknown_function = 0;
-  int unknown_width = 0;
   std::vector<std::string> unresolved_examples;
-  std::map<std::string, int> unparsable_types;
+  std::map<std::string, int> unresolvable_types;
   std::set<ea_t> touched_functions;
 
-  for ( const auto &entry : run.types->var_type_iter() )
+  for ( const trexida::plan::PlannedVariable &pv : plan.variable_types )
   {
-    const std::string &var_name = entry.first.name;
-    std::string type_str = printer.ext_type_name_at(entry.second);
+    const std::string &var_name = pv.name;
+    const std::string &type_str = pv.spelling;
 
     // TRex's placeholders for "no type information": an empty rounded type set prints as `void`,
     // and unconstrained fields/variables print as `undefined`/`undefinedN` or `padding`.
     //
-    // They must not be applied: IDA has no `void` variable type (`parse_decl` on `void x;` fails
-    // and leaves a BADSIZE type), and `undefinedN` carries no information beyond its width.
-    // Leaving the variable alone keeps IDA's own type for it, which the report already shows in
-    // its `ida_base_type` column. Counted separately from real failures.
-    if ( type_str.empty() || type_str == "void" || type_str.rfind("undefined", 0) == 0
-         || type_str.rfind("padding", 0) == 0 )
+    // They must not be applied: IDA has no `void` variable type, and `undefinedN` carries no
+    // information beyond its width. Leaving the variable alone keeps IDA's own type for it, which
+    // the report already shows in its `ida_base_type` column. Counted separately from real
+    // failures. (The planner carries the decision so this loop and the planner cannot drift.)
+    if ( !pv.has_type_info )
     {
       ++no_type_info;
       continue;
@@ -1317,39 +986,23 @@ void run_apply()
       continue;
     }
 
-    // Types C refuses to declare for a variable (an array of unknown length, a pointer to one, a
-    // width IDA has no type for) become an array or byte blob of the same width, so the variable
+    // Turn the printed type ("t1*", "uint32_t", ...) into a tinfo_t straight from the plan. Types
+    // the spelling alone cannot express for a variable (an array of unknown length, a width IDA
+    // has no type for) become an array or byte blob of the variable's own width, so the variable
     // still gets a type instead of being skipped.
+    tinfo_t tif;
     {
       auto row_it = row_of.find(std::make_pair(func_ea, lvar_name));
       const size_t width = row_it != row_of.end() ? (size_t)row_it->second->width : 0;
-      const std::string rewritten = representable_variable_type(type_str, width, prepared.sizes);
-      if ( rewritten.empty() )
+      if ( !trexida::ida_types::build_variable_type(get_idati(), plan, type_str, width, &tif) )
       {
+        // Aggregate instead of printing one line per variable: on a whole database the same
+        // untypable spelling can show up thousands of times.
+        ++unresolvable_types[type_str];
         ++skipped;
-        ++unknown_width;
+        ++unresolvable;
         continue;
       }
-      if ( rewritten != type_str )
-      {
-        ++gaps;
-        type_str = rewritten;
-      }
-    }
-
-    // Turn the printed type ("t1*", "uint32_t", ...) into a tinfo_t by parsing a dummy variable
-    // declaration of that type.
-    tinfo_t tif;
-    qstring dummy_name;
-    const std::string probe = declaration_for(type_str, "trex_probe_var") + ";";
-    if ( !parse_decl(&tif, &dummy_name, get_idati(), probe.c_str(), PT_VAR | PT_SIL) || tif.empty() )
-    {
-      // Aggregate instead of printing one line per variable: on a whole database the same
-      // unparsable type can show up thousands of times.
-      ++unparsable_types[type_str];
-      ++skipped;
-      ++unparsable;
-      continue;
     }
 
     // Prefer the locator recorded during the lift: IDA's auto-generated names (`_28`) do not
@@ -1401,14 +1054,13 @@ void run_apply()
     msg("[trexida] %d variable(s) carry no type information (`void`/`undefined`/`padding` in the "
         "report) and were left with IDA's own type\n",
         no_type_info);
-  for ( const auto &kv : unparsable_types )
-    msg("[trexida] could not parse inferred type `%s` (%d variable(s))\n", kv.first.c_str(),
+  for ( const auto &kv : unresolvable_types )
+    msg("[trexida] could not build a type for inferred `%s` (%d variable(s))\n", kv.first.c_str(),
         kv.second);
   if ( skipped != 0 )
-    msg("[trexida] skipped %d variable(s): %d unparsable type(s), %d no longer resolvable, "
-        "%d rejected by IDA, %d malformed name, %d unknown function, %d without a usable width\n",
-        skipped, unparsable, unresolved, modify_failed, malformed_name, unknown_function,
-        unknown_width);
+    msg("[trexida] skipped %d variable(s): %d unresolvable type(s), %d no longer resolvable, "
+        "%d rejected by IDA, %d malformed name, %d unknown function\n",
+        skipped, unresolvable, unresolved, modify_failed, malformed_name, unknown_function);
   for ( const std::string &ex : unresolved_examples )
     msg("[trexida]   unresolved example: %s\n", ex.c_str());
 }

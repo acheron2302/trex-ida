@@ -46,7 +46,7 @@ flowchart LR
 | Lifting | `src/frontends/ida/ida_lift.cpp` | Microcode at `MMAT_LVARS` → TRex IL (`Load(Deref(IntAdd(base, const)))` is the shape the co-location analysis depends on). Every emitted instruction is validated with the ported IL validator; anything the microcode cannot express becomes an `UnderspecifiedOutputModification` fallback and is counted, with a per-reason histogram in the log. |
 | Inference | `src/trex/` | Module-for-module port of upstream: SSA, reaching definitions, global value numbering, constant folding, structural types, co-location (`starts_at_analysis`), aggregate analysis, type rounding, serialization, C-like printer, `-Z` config flags. |
 | Inter-procedural pass | `src/analysis/interproc.cpp` | Joins the types of variables linked by a direct call — callee parameters, returned values, arguments passed by address — aggregated across the call sites of the same callee. On by default; see [Inter-procedural propagation](#inter-procedural-propagation). |
-| Write-back | `src/plugin/plugin.cpp` | Parses the printed declarations into the local TIL and sets them on the variables with `modify_user_lvar_info`, then marks the functions dirty. |
+| Write-back | `src/plugin/type_plan.cpp`, `src/plugin/ida_types.cpp` | Plans the recovered offsets/extents from the printer's structured types, installs them as native local types (`tinfo_t` / `create_udt` / `set_named_type`, no C text round trip), then sets them on the variables with `modify_user_lvar_info` and marks the functions dirty. |
 
 The core (`trex_core`) is IDA-free: it builds and runs without the SDK, which is what makes the
 unit tests and the differential gate possible outside IDA.
@@ -250,29 +250,46 @@ behaviours instead of `void*`.
 
 ### Notes on the write-back
 
-The printer emits Ghidra-flavoured C, and IDA's C parser rejects parts of it. `apply` therefore:
+`apply` does not hand IDA a C source string. `PrintableCTypes::to_string()` is still emitted
+byte-identically as the `.trex.c` export and as the differential oracle, but nothing parses it
+any more. Instead:
 
-* prefixes the declarations with the fixed-width typedefs plus IDA-visible aliases for TRex's
-  `undefined1..undefined8`/`padding` (an aggregate containing one of them would otherwise fail to
-  parse — observably losing every variable of that aggregate);
-* computes the aggregate layout and repairs members C cannot declare: `void` members become
-  exact-size padding blobs, `T[]*` becomes `T*`, a member whose size is unknown is dropped;
-* leaves a variable alone (keeping IDA's own type) when the inferred type carries no information —
-  `void`, `undefinedN`, `padding` — instead of storing a type that says nothing;
-* rewrites types C cannot declare for a variable (incomplete array, pointer to one, a width IDA has
-  no type for) into an array or byte blob of the same width, so the variable still gets a type;
-* assigns the rest with `modify_user_lvar_info` and refreshes the affected functions. The message
-  window reports applied/skipped counts and the reasons.
+* `src/plugin/type_plan.cpp` reads the printer's structured `CType` graph together with the
+  structural types it was built from and decides, per member: its **byte offset** (exactly what
+  the analysis recovered), the **byte extent** it owns, and whether IDA can represent it;
+* `src/plugin/ida_types.cpp` installs the result as native local types. Each aggregate is a
+  fixed-layout `tinfo_t` built with `create_udt()`, `add_udm()` and `set_named_type(..., NTF_REPLACE)`
+  (`ida_struct`/`add_struc` are IDAPython-only shims; the SDK implements them the same way).
+  Offsets are therefore exact — the previous text round trip printed them in decimal and re-read
+  them with `strtoull(..., 16)`, which misplaced every member at offset ≥ 10;
+* a member the analysis could not type (`void`, `code`, `undefinedN`, `int256_t`, a by-value self
+  reference, `T[]*` of an undefined aggregate) becomes a real **gap member**: a byte array of
+  exactly its recovered width carrying `TAFLD_GAP`, not a fake `unsigned char gap_x[N]` member. A
+  member whose width is not known at all is dropped rather than shifting the layout;
+* everything else is a real member — `float`, `double`, `bool`, `long double`, `int128_t`, arrays,
+  pointers, and nested aggregates by value (created first, so references always resolve);
+* a variable is left alone (keeping IDA's own type) when the inferred type carries no information —
+  `void`, `undefinedN`, `padding` — instead of storing a type that says nothing. Anything IDA
+  cannot express for a variable (an incomplete array, a width it has no type for) becomes an array
+  or byte blob of the variable's own width, so it still gets a type;
+* types are assigned with `modify_user_lvar_info` and the affected functions are refreshed. The
+  message window reports applied/skipped counts, the reasons, and every type that could not be
+  installed (`[trexida] type problem: ...`).
+
+The plan is also what the types window renders, so the window and the database cannot disagree
+about an offset. `tests/test_type_plan.cpp` covers the planner without a database;
+`tests/e2e/test_local_types.py` covers the installed types in IDA.
 
 ## Verification
 
 | Gate | Command | Proves |
 |---|---|---|
-| Core unit tests | `build-icx\trex_unit_tests.exe` | The five inference tests transcribed from upstream `trex/src/tests.rs`, the two C-type/printer tests, and the inter-procedural module's behaviour (binding, cross-site aggregation, unresolved indirect calls, driver/plain-pipeline equality). |
+| Core unit tests | `build-icx\trex_unit_tests.exe` | The five inference tests transcribed from upstream `trex/src/tests.rs`, the two C-type/printer tests, the inter-procedural module's behaviour (binding, cross-site aggregation, unresolved indirect calls, driver/plain-pipeline equality), and the native-type planner (decimal offsets, gaps with exact extents, floats kept as real members, union alternatives at 0, flexible arrays last, the window's rendered declaration). |
 | Differential gate | `python scripts\diff_oracle.py` | The port produces **byte-identical** stdout, SSA dump and `.structural` output to the Rust original, and the same node/edge set in the GraphViz dump, for every fixture in `tests/fixtures/lifted`. |
 | Lift regression | `python tests\e2e\test_lift.py` | The microcode frontend's IL and variable report match the recorded golden files in `tests/e2e/golden` (re-record with `--update`). This is the only automatable coverage the microcode mapping can have without the full pipeline. |
 | End-to-end | `python tests\e2e\run.py` | IDA runs headless over `fixture.exe` (built without debug info): a self-referential struct is inferred, a variable becomes a pointer to it, the report covers the database, and the C-like output carries real definitions. |
 | Write-back | `python tests\e2e\test_apply.py` | A second IDA session enumerates the database's user lvar settings and finds the trex-written types. |
+| Native local types | `python tests\e2e\test_local_types.py` | A second IDA session opens the type library: the aggregates are there, `field_<decimal>` members sit at their decimal byte offset, members do not overlap, gap members span exactly the bytes they cover, and at least one variable is typed by an aggregate from the library. |
 | Inter-procedural | `python tests\e2e\test_interproc.py` | With propagation on, `pass`, `use_a` and `use_b` share one aggregate pointer type; with `TREXIDA_INTERPROC=0` they stay per-function. |
 | Everything | `python scripts\verify_all.py` | All of the above (`--skip-build` reuses the existing `build-icx` binaries). |
 
@@ -307,7 +324,7 @@ together. The deliberate differences:
 | Inter-procedural propagation in `src/analysis/` | Extension described in the paper's §3.3 footnote 9; kept out of `src/trex/` and out of `trex_port_cli`. |
 | `InferenceConfig` can be re-initialised | Upstream asserts the global is initialised once from the command line; the plugin runs inference repeatedly inside one IDA process. |
 | The GraphViz dump's labels/escaping are rendered minimally | The differential gate compares what the file encodes (nodes, labelled edges, shapes) instead of the Rust `dot` crate's formatting; the SSA dump remains byte-compared. |
-| The write-back repairs declarations for IDA's parser | IDA cannot store `void` members, unsized arrays or unknown-width types; the layout is preserved (see [Notes on the write-back](#notes-on-the-write-back)). |
+| The write-back installs native types instead of repairing C text | IDA cannot store `void` members, unsized arrays or unknown-width types, and re-parsing the printed C lost the offsets (see [Notes on the write-back](#notes-on-the-write-back)). |
 
 ## Attribution
 
